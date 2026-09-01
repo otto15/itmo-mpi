@@ -61,6 +61,10 @@ curl -X POST http://localhost:8088/api/provisioning/settlements \
 
 Исходные данные Каттегата восстанавливаются из «Обзора» под ролью ярла.
 
+Подробные материалы для защиты:
+
+- [матрица покрытия и пошаговое руководство по демонстрации](docs/Architecture%20Demonstration%20Guide.md).
+
 ## Проверки
 
 Backend:
@@ -84,6 +88,7 @@ npm audit --omit=dev
 Документация:
 
 - [Software Architecture Document](docs/Software%20Architecture%20Document.md);
+- [матрица покрытия и руководство по демонстрации](docs/Architecture%20Demonstration%20Guide.md);
 - [ER-схема и описание базы данных](docs/Database%20Schema.md);
 - [исходная SQL-миграция](backend/src/main/resources/db/migration/V1__architecture_slice.sql);
 - [миграция поселений](backend/src/main/resources/db/migration/V2__settlements.sql);

@@ -147,6 +147,32 @@ class ArchitectureSliceIntegrationTest {
     }
 
     @Test
+    void jarlAssignsAvailableWarriorOnlyOnceAndWritesAudit() {
+        AuthenticatedUser jarl = login("ragnar", "raven-2026");
+        UUID thorstein = UUID.fromString("00000000-0000-0000-0000-000000000105");
+        UUID preparationExpedition = UUID.fromString("00000000-0000-0000-0000-000000000202");
+        var request = new ApiModels.AddCrewRequest(thorstein, "разведчик");
+
+        UUID assignmentId = crew.add(jarl, preparationExpedition, request);
+
+        assertThat(jdbc.queryForObject(
+                "select participation_status from crew_assignment where id = ?",
+                String.class, assignmentId)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("""
+                select count(*) from audit_event
+                 where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(1);
+
+        assertThatThrownBy(() -> crew.add(jarl, preparationExpedition, request))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("уже задействован в другом походе");
+        assertThat(jdbc.queryForObject("""
+                select count(*) from crew_assignment
+                 where user_id = ? and participation_status <> 'REMOVED'
+                """, Integer.class, thorstein)).isEqualTo(1);
+    }
+
+    @Test
     void insufficientStockRollsBackBothStockAndStage() {
         AuthenticatedUser shipbuilder = login("floki", "oak-2026");
         jdbc.update("""
