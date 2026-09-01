@@ -5,14 +5,12 @@ import type { Allocation, Crew, DemoState, Loot, Role, Session } from './types'
 type Tab = 'overview' | 'crew' | 'shipyard' | 'results' | 'audit'
 type Notice = { kind: 'ok' | 'error'; text: string } | null
 
-const accounts: Record<Role, { label: string; username: string; password: string; hint: string }> = {
-  JARL: { label: 'Ярл', username: 'ragnar', password: 'raven-2026', hint: 'Команда и итоги' },
-  WARRIOR: { label: 'Воин', username: 'halvdan', password: 'shield-2026', hint: 'Подтверждение участия' },
-  SHIPBUILDER: { label: 'Кораблестроитель', username: 'floki', password: 'oak-2026', hint: 'Этапы верфи' },
-  PRIEST: { label: 'Жрец', username: 'godi', password: 'blot-2026', hint: 'Благословение' }
+const roleNames: Record<Role, string> = {
+  JARL: 'Ярл',
+  WARRIOR: 'Воин',
+  SHIPBUILDER: 'Кораблестроитель',
+  PRIEST: 'Жрец'
 }
-
-const roleOrder: Role[] = ['JARL', 'WARRIOR', 'SHIPBUILDER', 'PRIEST']
 const resourceNames: Record<string, string> = {
   WOOD: 'Дерево', CLOTH: 'Ткань', RESIN: 'Смола',
   GOLD: 'Золото', PROVISIONS: 'Провизия', THRALLS: 'Пленные'
@@ -48,18 +46,17 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  async function loginAs(role: Role) {
+  async function login(username: string, password: string) {
     setBusy(true)
     try {
-      const account = accounts[role]
       const next = await api<Session>('/api/auth/login', undefined, {
-        username: account.username,
-        password: account.password
+        username,
+        password
       })
       localStorage.setItem('drakkar-session', JSON.stringify(next))
       setSession(next)
       await loadState(next)
-      setNotice({ kind: 'ok', text: `Вход: ${next.displayName} · ${account.label}` })
+      setNotice({ kind: 'ok', text: `Вход выполнен: ${next.displayName}` })
     } catch (error) {
       setNotice({ kind: 'error', text: messageOf(error) })
     } finally {
@@ -95,7 +92,7 @@ function App() {
   }
 
   if (!session) {
-    return <LoginScreen busy={busy} onLogin={loginAs} notice={notice} />
+    return <LoginScreen busy={busy} onLogin={login} notice={notice} />
   }
 
   return (
@@ -103,7 +100,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">D</div>
-          <div><strong>Drakkar ERP</strong><span>Управление поселением</span></div>
+          <strong>Drakkar ERP</strong>
         </div>
         <nav>
           <NavItem active={tab === 'overview'} icon="⌂" label="Обзор" onClick={() => setTab('overview')} />
@@ -118,16 +115,9 @@ function App() {
       <main>
         <header className="topbar">
           <h1>{tabTitle(tab)}</h1>
-          <div className="user-switcher">
-            <span>Роль</span>
-            <div className="role-buttons">
-              {roleOrder.map(role => (
-                <button key={role} className={session.role === role ? 'role active' : 'role'} onClick={() => void loginAs(role)} disabled={busy} title={accounts[role].hint}>
-                  {accounts[role].label}
-                </button>
-              ))}
-            </div>
-            <div className="current-user"><b>{session.displayName}</b><small>{accounts[session.role].label}</small></div>
+          <div className="user-context">
+            <div className="current-settlement"><small>Поселение</small><b>{state?.activeSettlementName ?? '—'}</b></div>
+            <div className="current-user"><b>{session.displayName}</b><small>{roleNames[session.role]}</small></div>
           </div>
         </header>
 
@@ -146,25 +136,25 @@ function App() {
   )
 }
 
-function LoginScreen({ busy, onLogin, notice }: { busy: boolean; onLogin: (role: Role) => Promise<void>; notice: Notice }) {
+function LoginScreen({ busy, onLogin, notice }: { busy: boolean; onLogin: (username: string, password: string) => Promise<void>; notice: Notice }) {
+  const [username, setUsername] = useState('ragnar')
+  const [password, setPassword] = useState('raven-2026')
+
   return (
     <div className="login-page">
       <section className="login-panel">
         <div className="login-brand">
           <div className="brand-mark">D</div>
-          <div><strong>Drakkar ERP</strong><span>Управление поселением</span></div>
+          <strong>Drakkar ERP</strong>
         </div>
         <h1>Вход в систему</h1>
-        <p>Выберите роль для демонстрации.</p>
-        <div className="account-grid">
-          {roleOrder.map(role => (
-            <button key={role} className="account-card" disabled={busy} onClick={() => void onLogin(role)}>
-              <strong>{accounts[role].label}</strong>
-              <small>{accounts[role].hint}</small>
-              <span className="arrow">→</span>
-            </button>
-          ))}
-        </div>
+        <p>Введите данные своей учётной записи.</p>
+        <form className="login-form" onSubmit={event => { event.preventDefault(); void onLogin(username, password) }}>
+          <label><span>Логин</span><input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} /></label>
+          <label><span>Пароль</span><input autoComplete="current-password" type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+          <button className="primary" type="submit" disabled={busy || !username.trim() || !password}>{busy ? 'Вход…' : 'Войти'}</button>
+        </form>
+        <small className="demo-hint">Демо-доступ: ragnar / raven-2026</small>
         {notice && <div className={`notice ${notice.kind}`}>{notice.text}</div>}
       </section>
     </div>
@@ -181,7 +171,7 @@ function Overview({ state, session, busy, perform }: ModuleProps) {
     <>
       <section className="metric-grid">
         <Metric label="Команда готова" value={`${ready}%`} detail={`${prepCrew.filter(x => x.participationStatus === 'CONFIRMED').length} из ${prepCrew.length} подтвердили`} tone="amber" />
-        <Metric label="Корабль" value={`${state.ship?.progress ?? 0}%`} detail={state.ship?.stageName ?? 'нет доступа'} tone="blue" />
+        <Metric label="Корабль" value={`${state.ship?.progress ?? 0}%`} detail={state.ship?.stageName ?? 'не добавлен'} tone="blue" />
         <Metric label="Ресурсы верфи" value={String(coreStock)} detail="единиц на складе" tone="green" />
         <Metric label="Активный поход" value={sailing ? '1' : '0'} detail={sailing?.name ?? 'нет'} tone="red" />
       </section>
@@ -189,7 +179,7 @@ function Overview({ state, session, busy, perform }: ModuleProps) {
         <div className="panel expedition-card">
           <PanelHead overline="Сейчас в пути" title={sailing?.name ?? 'Нет активного похода'} />
           {sailing && <>
-            <div className="route-line"><span>Каттегат</span><i /><b>{sailing.target}</b></div>
+            <div className="route-line"><span>{state.activeSettlementName}</span><i /><b>{sailing.target}</b></div>
             <dl className="facts"><div><dt>Корабль</dt><dd>{sailing.shipName}</dd></div><div><dt>Выход</dt><dd>{dateOf(sailing.plannedDeparture)}</dd></div><div><dt>Статус</dt><dd><Status value={sailing.status} /></dd></div></dl>
           </>}
         </div>
@@ -201,7 +191,7 @@ function Overview({ state, session, busy, perform }: ModuleProps) {
           </>}
         </div>
       </section>
-      {session.role === 'JARL' && <button className="text-button" disabled={busy} onClick={() => void perform(() => api('/api/demo/reset', session.token, {}), 'Демо-данные восстановлены')}>↻ Восстановить исходные данные</button>}
+      {session.role === 'JARL' && state.demoResetAvailable && <button className="text-button" disabled={busy} onClick={() => void perform(() => api('/api/demo/reset', session.token, {}), 'Демо-данные восстановлены')}>↻ Восстановить исходные данные</button>}
     </>
   )
 }
@@ -254,7 +244,9 @@ function CrewModule({ state, session, busy, perform, setNotice, loadState }: Mod
 
 function ShipyardModule({ state, session, busy, perform }: ModuleProps) {
   const ship = state.ship
-  if (!ship) return <AccessDenied module="Верфь" />
+  if (!ship) return session.role === 'JARL'
+    ? <section className="panel access-denied"><span>◇</span><h2>Кораблей пока нет</h2><p>В этом поселении ещё не добавлен корабль.</p></section>
+    : <AccessDenied module="Верфь" />
   return <section className="module-grid">
     <div className="panel wide ship-panel">
       <PanelHead overline="Строительство" title={ship.name} />
@@ -308,14 +300,14 @@ function ResultsModule({ state, session, busy, perform }: ModuleProps) {
 }
 
 function AuditModule({ state }: { state: DemoState }) {
-  return <section className="panel audit-panel"><PanelHead overline="История изменений" title="Последние события" /><div className="audit-list">{state.audit.map(event => <div key={event.id}><time>{new Date(event.happenedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span className="audit-dot" /><div><b>{eventLabel(event.eventType)}</b><small>{accounts[event.actorRole].label}</small></div></div>)}</div>{!state.audit.length && <div className="empty-state"><b>История пока пуста</b><span>Выполните любое действие</span></div>}</section>
+  return <section className="panel audit-panel"><PanelHead overline="История изменений" title="Последние события" /><div className="audit-list">{state.audit.map(event => <div key={event.id}><time>{new Date(event.happenedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span className="audit-dot" /><div><b>{eventLabel(event.eventType)}</b><small>{roleNames[event.actorRole]}</small></div></div>)}</div>{!state.audit.length && <div className="empty-state"><b>История пока пуста</b><span>Выполните любое действие</span></div>}</section>
 }
 
 type ModuleProps = { state: DemoState; session: Session; busy: boolean; perform: <T>(work: () => Promise<T>, success: string, after?: (result: T) => void) => Promise<void> }
 function NavItem({ active, icon, label, onClick }: { active: boolean; icon: string; label: string; onClick: () => void }) { return <button className={active ? 'nav-item active' : 'nav-item'} onClick={onClick}><span>{icon}</span>{label}</button> }
 function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <div className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small><i /></div> }
 function PanelHead({ overline, title }: { overline: string; title: string }) { return <div className="panel-head"><span>{overline}</span><h2>{title}</h2></div> }
-function RolePrompt({ role }: { role: Role }) { return <div className="role-prompt"><span>⚿</span><div><b>Нужна роль «{accounts[role].label}»</b><small>Переключите демо-вход в верхней панели</small></div></div> }
+function RolePrompt({ role }: { role: Role }) { return <div className="role-prompt"><span>⚿</span><div><b>Нужна роль «{roleNames[role]}»</b><small>Войдите под учётной записью с этой ролью</small></div></div> }
 function AccessDenied({ module }: { module: string }) { return <section className="panel access-denied"><span>⚿</span><h2>{module}</h2><p>Данные модуля не возвращаются сервером для текущей роли.</p></section> }
 function Loading() { return <div className="loading"><i /><span>Поднимаем паруса…</span></div> }
 function Status({ value }: { value: string }) { const labels: Record<string, string> = { PREPARATION: 'Подготовка', SAILING: 'В плавании', COMPLETED: 'Завершён', PENDING: 'Ожидает ответа', CONFIRMED: 'Подтверждено', DECLINED: 'Отказ' }; return <span className={`status ${value.toLowerCase()}`}>{labels[value] ?? value}</span> }
@@ -329,7 +321,8 @@ function eventLabel(value: string) {
     PARTICIPATION_DECLINED: 'Участник отказался от похода',
     SHIP_STAGE_COMPLETED: 'Этап строительства завершён',
     SHIP_BLESSED: 'Корабль благословлён',
-    EXPEDITION_FINALIZED: 'Итоги похода утверждены'
+    EXPEDITION_FINALIZED: 'Итоги похода утверждены',
+    SETTLEMENT_CREATED: 'Поселение добавлено'
   }
   return labels[value] ?? 'Изменение сохранено'
 }

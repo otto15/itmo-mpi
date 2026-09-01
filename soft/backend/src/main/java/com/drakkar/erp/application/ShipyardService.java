@@ -1,8 +1,8 @@
 package com.drakkar.erp.application;
 
 import com.drakkar.erp.api.ApiModels;
+import com.drakkar.erp.domain.AuthenticatedUser;
 import com.drakkar.erp.domain.DomainException;
-import com.drakkar.erp.domain.Role;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,12 +27,15 @@ public class ShipyardService {
     }
 
     @Transactional
-    public void completeStage(UUID shipId, ApiModels.CompleteStageRequest request) {
+    public void completeStage(AuthenticatedUser actor, UUID shipId, ApiModels.CompleteStageRequest request) {
         ShipRow ship = jdbc.query("""
-                select stage, blessed, version from ship where id = ? for update
+                select stage, blessed, version
+                  from ship
+                 where id = ? and settlement_id = ?
+                   for update
                 """, rs -> rs.next()
                 ? new ShipRow(rs.getInt("stage"), rs.getBoolean("blessed"), rs.getInt("version"))
-                : null, shipId);
+                : null, shipId, actor.settlementId());
         if (ship == null) {
             throw DomainException.notFound("Корабль");
         }
@@ -49,12 +52,14 @@ public class ShipyardService {
         List<Requirement> requirements = jdbc.query("""
                 select r.resource, r.quantity as required, s.quantity as available
                   from ship_stage_requirement r
-                  join warehouse_stock s on s.resource = r.resource
+                  join warehouse_stock s
+                    on s.resource = r.resource and s.settlement_id = ?
                  where r.ship_id = ? and r.stage = ?
                  order by r.resource
                    for update of s
                 """, (rs, rowNum) -> new Requirement(
-                rs.getString("resource"), rs.getInt("required"), rs.getInt("available")), shipId, ship.stage());
+                rs.getString("resource"), rs.getInt("required"), rs.getInt("available")),
+                actor.settlementId(), shipId, ship.stage());
 
         for (Requirement requirement : requirements) {
             if (requirement.available() < requirement.required()) {
@@ -70,23 +75,27 @@ public class ShipyardService {
                     update warehouse_stock
                        set quantity = quantity - ?, version = version + 1
                      where resource = ?
-                    """, requirement.required(), requirement.resource());
+                       and settlement_id = ?
+                    """, requirement.required(), requirement.resource(), actor.settlementId());
         }
-        jdbc.update("update ship set stage = stage + 1, version = version + 1 where id = ?", shipId);
-        audit.append(Role.SHIPBUILDER, "SHIP_STAGE_COMPLETED", "SHIP", shipId,
+        jdbc.update("""
+                update ship set stage = stage + 1, version = version + 1
+                 where id = ? and settlement_id = ?
+                """, shipId, actor.settlementId());
+        audit.append(actor.settlementId(), actor.role(), "SHIP_STAGE_COMPLETED", "SHIP", shipId,
                 "{\"completedStage\":" + ship.stage() + ",\"resourcesWrittenOff\":" + requirements.size() + "}");
     }
 
     @Transactional
-    public void bless(UUID shipId) {
+    public void bless(AuthenticatedUser actor, UUID shipId) {
         int changed = jdbc.update("""
                 update ship set blessed = true, version = version + 1
-                 where id = ? and blessed = false and stage = 3
-                """, shipId);
+                 where id = ? and settlement_id = ? and blessed = false and stage = 3
+                """, shipId, actor.settlementId());
         if (changed == 0) {
             throw DomainException.conflict("BLESSING_NOT_APPLICABLE",
                     "Благословение доступно перед финальным этапом");
         }
-        audit.append(Role.PRIEST, "SHIP_BLESSED", "SHIP", shipId, "{}");
+        audit.append(actor.settlementId(), actor.role(), "SHIP_BLESSED", "SHIP", shipId, "{}");
     }
 }

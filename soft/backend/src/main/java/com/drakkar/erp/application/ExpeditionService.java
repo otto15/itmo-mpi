@@ -1,9 +1,9 @@
 package com.drakkar.erp.application;
 
 import com.drakkar.erp.api.ApiModels;
+import com.drakkar.erp.domain.AuthenticatedUser;
 import com.drakkar.erp.domain.DomainException;
 import com.drakkar.erp.domain.Loot;
-import com.drakkar.erp.domain.Role;
 import com.drakkar.erp.domain.WergildCalculator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -31,15 +31,23 @@ public class ExpeditionService {
         this.audit = audit;
     }
 
-    public List<ApiModels.AllocationView> preview(UUID expeditionId, ApiModels.FinalizeRequest request) {
-        ExpeditionRow expedition = findExpedition(expeditionId, false);
+    public List<ApiModels.AllocationView> preview(
+            AuthenticatedUser actor,
+            UUID expeditionId,
+            ApiModels.FinalizeRequest request
+    ) {
+        ExpeditionRow expedition = findExpedition(actor.settlementId(), expeditionId, false);
         validateCanFinalize(expedition, request.expectedVersion());
         return toViews(calculate(expeditionId, request));
     }
 
     @Transactional
-    public List<ApiModels.AllocationView> finalizeExpedition(UUID expeditionId, ApiModels.FinalizeRequest request) {
-        ExpeditionRow expedition = findExpedition(expeditionId, true);
+    public List<ApiModels.AllocationView> finalizeExpedition(
+            AuthenticatedUser actor,
+            UUID expeditionId,
+            ApiModels.FinalizeRequest request
+    ) {
+        ExpeditionRow expedition = findExpedition(actor.settlementId(), expeditionId, true);
         validateCanFinalize(expedition, request.expectedVersion());
         List<WergildCalculator.Allocation> allocations = calculate(expeditionId, request);
 
@@ -64,34 +72,34 @@ public class ExpeditionService {
                     allocation.loot().gold(), allocation.loot().provisions(), allocation.loot().thralls());
         }
 
-        addToWarehouse("GOLD", request.loot().gold());
-        addToWarehouse("PROVISIONS", request.loot().provisions());
-        addToWarehouse("THRALLS", request.loot().thralls());
+        addToWarehouse(actor.settlementId(), "GOLD", request.loot().gold());
+        addToWarehouse(actor.settlementId(), "PROVISIONS", request.loot().provisions());
+        addToWarehouse(actor.settlementId(), "THRALLS", request.loot().thralls());
 
         int changed = jdbc.update("""
                 update expedition
                    set status = 'COMPLETED', finalized_at = now(),
                        loot_gold = ?, loot_provisions = ?, loot_thralls = ?, version = version + 1
-                 where id = ? and version = ? and finalized_at is null
+                 where id = ? and settlement_id = ? and version = ? and finalized_at is null
                 """, request.loot().gold(), request.loot().provisions(), request.loot().thralls(),
-                expeditionId, request.expectedVersion());
+                expeditionId, actor.settlementId(), request.expectedVersion());
         if (changed != 1) {
             throw DomainException.conflict("STALE_EXPEDITION", "Итоги похода уже были изменены");
         }
 
-        audit.append(Role.JARL, "EXPEDITION_FINALIZED", "EXPEDITION", expeditionId,
+        audit.append(actor.settlementId(), actor.role(), "EXPEDITION_FINALIZED", "EXPEDITION", expeditionId,
                 "{\"allocations\":" + allocations.size() + ",\"fallen\":" + fallen.size() + "}");
         return toViews(allocations);
     }
 
-    private ExpeditionRow findExpedition(UUID expeditionId, boolean lock) {
+    private ExpeditionRow findExpedition(UUID settlementId, UUID expeditionId, boolean lock) {
         String suffix = lock ? " for update" : "";
         ExpeditionRow row = jdbc.query("""
                 select status, version, finalized_at is not null as immutable
-                  from expedition where id = ?
+                  from expedition where id = ? and settlement_id = ?
                 """ + suffix, rs -> rs.next()
                 ? new ExpeditionRow(rs.getString("status"), rs.getInt("version"), rs.getBoolean("immutable"))
-                : null, expeditionId);
+                : null, expeditionId, settlementId);
         if (row == null) {
             throw DomainException.notFound("Поход");
         }
@@ -139,9 +147,11 @@ public class ExpeditionService {
         )).toList();
     }
 
-    private void addToWarehouse(String resource, int amount) {
+    private void addToWarehouse(UUID settlementId, String resource, int amount) {
         jdbc.update("""
-                update warehouse_stock set quantity = quantity + ?, version = version + 1 where resource = ?
-                """, amount, resource);
+                update warehouse_stock
+                   set quantity = quantity + ?, version = version + 1
+                 where settlement_id = ? and resource = ?
+                """, amount, settlementId, resource);
     }
 }

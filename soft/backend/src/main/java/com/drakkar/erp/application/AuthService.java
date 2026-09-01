@@ -24,7 +24,14 @@ import java.util.UUID;
 public class AuthService {
     public static final Duration SESSION_TTL = Duration.ofHours(8);
 
-    private record Account(UUID id, String displayName, Role role, byte[] salt, byte[] passwordHash) {
+    private record Account(
+            UUID id,
+            String displayName,
+            Role role,
+            UUID settlementId,
+            byte[] salt,
+            byte[] passwordHash
+    ) {
     }
 
     private final JdbcTemplate jdbc;
@@ -39,14 +46,18 @@ public class AuthService {
     @Transactional
     public ApiModels.LoginResponse login(ApiModels.LoginRequest request) {
         Account account = jdbc.query("""
-                select u.id, u.display_name, u.system_role, a.password_salt, a.password_hash
+                select u.id, u.display_name, sm.member_role, sm.settlement_id,
+                       a.password_salt, a.password_hash
                   from user_account a
                   join app_user u on u.id = a.user_id
+                  join settlement_membership sm on sm.user_id = u.id
+                  join settlement st on st.id = sm.settlement_id
                  where lower(a.username) = lower(?) and a.enabled = true
                 """, rs -> rs.next() ? new Account(
                 rs.getObject("id", UUID.class),
                 rs.getString("display_name"),
-                Role.valueOf(rs.getString("system_role")),
+                Role.valueOf(rs.getString("member_role")),
+                rs.getObject("settlement_id", UUID.class),
                 rs.getBytes("password_salt"),
                 rs.getBytes("password_hash")) : null, request.username().trim());
 
@@ -59,17 +70,21 @@ public class AuthService {
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(rawToken);
         Instant expiresAt = Instant.now().plus(SESSION_TTL);
         jdbc.update("""
-                insert into user_session(token_hash, user_id, expires_at) values (?, ?, ?)
-                """, tokenHash(token), account.id(), java.sql.Timestamp.from(expiresAt));
+                insert into user_session(token_hash, user_id, active_settlement_id, expires_at)
+                values (?, ?, ?, ?)
+                """, tokenHash(token), account.id(), account.settlementId(), java.sql.Timestamp.from(expiresAt));
         return new ApiModels.LoginResponse(token, expiresAt, account.id(), account.displayName(), account.role().name());
     }
 
     public AuthenticatedUser authenticate(String token) {
         AuthenticatedUser user = jdbc.query("""
-                select u.id, u.display_name, u.system_role
+                select u.id, u.display_name, sm.member_role, st.id as settlement_id, st.name as settlement_name
                   from user_session s
                   join app_user u on u.id = s.user_id
                   join user_account a on a.user_id = u.id
+                  join settlement st on st.id = s.active_settlement_id
+                  join settlement_membership sm
+                    on sm.user_id = u.id and sm.settlement_id = st.id
                  where s.token_hash = ?
                    and s.revoked_at is null
                    and s.expires_at > now()
@@ -77,7 +92,9 @@ public class AuthService {
                 """, rs -> rs.next() ? new AuthenticatedUser(
                 rs.getObject("id", UUID.class),
                 rs.getString("display_name"),
-                Role.valueOf(rs.getString("system_role"))) : null, tokenHash(token));
+                Role.valueOf(rs.getString("member_role")),
+                rs.getObject("settlement_id", UUID.class),
+                rs.getString("settlement_name")) : null, tokenHash(token));
         if (user == null) {
             throw new DomainException("SESSION_INVALID", "Сессия отсутствует или истекла", HttpStatus.UNAUTHORIZED);
         }

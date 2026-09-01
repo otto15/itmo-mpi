@@ -24,3 +24,6 @@ info:
   app:
     name: Drakkar ERP Soft prototype
     architecture: modular-monolith
+
+drakkar:
+  provisioning-key: ${PROVISIONING_KEY:local-provisioning-key}

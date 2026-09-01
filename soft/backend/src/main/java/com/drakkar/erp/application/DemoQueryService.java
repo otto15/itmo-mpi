@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class DemoQueryService {
@@ -25,10 +26,13 @@ public class DemoQueryService {
     }
 
     public ApiModels.DemoState state(AuthenticatedUser actor) {
+        UUID settlementId = actor.settlementId();
         List<ApiModels.ExpeditionView> expeditions = jdbc.query("""
                 select id, name, target, status, planned_departure, ship_name, version,
                        finalized_at is not null as immutable, loot_gold, loot_provisions, loot_thralls
-                from expedition order by planned_departure
+                  from expedition
+                 where settlement_id = ?
+                 order by planned_departure
                 """, (rs, rowNum) -> new ApiModels.ExpeditionView(
                 rs.getObject("id", java.util.UUID.class),
                 rs.getString("name"),
@@ -40,14 +44,16 @@ public class DemoQueryService {
                 rs.getBoolean("immutable"),
                 rs.getObject("loot_gold") == null ? null : new ApiModels.LootRequest(
                         rs.getInt("loot_gold"), rs.getInt("loot_provisions"), rs.getInt("loot_thralls"))
-        ));
+        ), settlementId);
 
         List<ApiModels.CrewView> crew = jdbc.query("""
                 select ca.id, ca.expedition_id, ca.user_id, u.display_name, ca.expedition_role,
                        ca.participation_status, ca.alive, ca.version
                 from crew_assignment ca
                 join app_user u on u.id = ca.user_id
-                where ca.participation_status <> 'REMOVED'
+                join expedition e on e.id = ca.expedition_id
+                where e.settlement_id = ?
+                  and ca.participation_status <> 'REMOVED'
                 order by ca.expedition_id, u.display_name
                 """, (rs, rowNum) -> new ApiModels.CrewView(
                 rs.getObject("id", java.util.UUID.class),
@@ -58,16 +64,19 @@ public class DemoQueryService {
                 rs.getString("participation_status"),
                 rs.getBoolean("alive"),
                 rs.getInt("version")
-        ));
+        ), settlementId);
 
         List<ApiModels.UserView> availableUsers = jdbc.query("""
-                select u.id, u.display_name, u.system_role
-                from app_user u
-                where u.system_role = 'WARRIOR'
+                select u.id, u.display_name, sm.member_role
+                from settlement_membership sm
+                join app_user u on u.id = sm.user_id
+                where sm.settlement_id = ?
+                  and sm.member_role = 'WARRIOR'
                   and not exists (
                     select 1 from crew_assignment ca
                     join expedition e on e.id = ca.expedition_id
                     where ca.user_id = u.id
+                      and e.settlement_id = sm.settlement_id
                       and ca.participation_status <> 'REMOVED'
                       and e.status in ('PREPARATION', 'SAILING')
                 )
@@ -75,22 +84,30 @@ public class DemoQueryService {
                 """, (rs, rowNum) -> new ApiModels.UserView(
                 rs.getObject("id", java.util.UUID.class),
                 rs.getString("display_name"),
-                rs.getString("system_role")
-        ));
+                rs.getString("member_role")
+        ), settlementId);
 
-        ApiModels.ShipView ship = jdbc.queryForObject("""
-                select id, name, stage, blessed, version from ship order by name limit 1
-                """, (rs, rowNum) -> {
+        ApiModels.ShipView ship = jdbc.query("""
+                select id, name, stage, blessed, version
+                  from ship
+                 where settlement_id = ?
+                 order by name
+                 limit 1
+                """, rs -> {
+            if (!rs.next()) {
+                return null;
+            }
             var id = rs.getObject("id", java.util.UUID.class);
             int stage = rs.getInt("stage");
             List<ApiModels.RequirementView> requirements = jdbc.query("""
                     select r.resource, r.quantity, s.quantity as available
                     from ship_stage_requirement r
-                    join warehouse_stock s on s.resource = r.resource
+                    join warehouse_stock s
+                      on s.resource = r.resource and s.settlement_id = ?
                     where r.ship_id = ? and r.stage = ?
                     order by r.resource
                     """, (req, reqRow) -> new ApiModels.RequirementView(
-                    req.getString("resource"), req.getInt("quantity"), req.getInt("available")), id, stage);
+                    req.getString("resource"), req.getInt("quantity"), req.getInt("available")), settlementId, id, stage);
             return new ApiModels.ShipView(
                     id,
                     rs.getString("name"),
@@ -101,25 +118,34 @@ public class DemoQueryService {
                     rs.getInt("version"),
                     requirements
             );
-        });
+        }, settlementId);
 
         List<ApiModels.StockView> stock = jdbc.query("""
-                select resource, quantity, version from warehouse_stock order by resource
+                select resource, quantity, version
+                  from warehouse_stock
+                 where settlement_id = ?
+                 order by resource
                 """, (rs, rowNum) -> new ApiModels.StockView(
-                rs.getString("resource"), rs.getInt("quantity"), rs.getInt("version")));
+                rs.getString("resource"), rs.getInt("quantity"), rs.getInt("version")), settlementId);
 
         List<ApiModels.AllocationView> allocations = jdbc.query("""
                 select recipient, category, gold, provisions, thralls
-                from wergild_allocation order by id
+                  from wergild_allocation wa
+                  join expedition e on e.id = wa.expedition_id
+                 where e.settlement_id = ?
+                 order by wa.id
                 """, (rs, rowNum) -> new ApiModels.AllocationView(
                 rs.getString("recipient"),
                 rs.getString("category"),
                 new ApiModels.LootRequest(rs.getInt("gold"), rs.getInt("provisions"), rs.getInt("thralls"))
-        ));
+        ), settlementId);
 
         List<ApiModels.AuditView> audit = jdbc.query("""
                 select id, happened_at, actor_role, event_type, aggregate_type, aggregate_id, details::text
-                from audit_event order by happened_at desc, id desc limit 12
+                  from audit_event
+                 where settlement_id = ?
+                 order by happened_at desc, id desc
+                 limit 12
                 """, (rs, rowNum) -> new ApiModels.AuditView(
                 rs.getLong("id"),
                 rs.getTimestamp("happened_at").toInstant(),
@@ -128,10 +154,11 @@ public class DemoQueryService {
                 rs.getString("aggregate_type"),
                 rs.getObject("aggregate_id", java.util.UUID.class),
                 rs.getString("details")
-        ));
+        ), settlementId);
 
         ApiModels.DemoState full = new ApiModels.DemoState(
-                expeditions, crew, availableUsers, ship, stock, allocations, audit);
+                expeditions, crew, availableUsers, ship, stock, allocations, audit,
+                actor.settlementName(), DemoResetService.DEFAULT_SETTLEMENT_ID.equals(settlementId));
         if (actor.role() == Role.JARL) {
             return full;
         }
@@ -146,16 +173,19 @@ public class DemoQueryService {
                     .filter(item -> ownExpeditionIds.contains(item.id()))
                     .toList();
             return new ApiModels.DemoState(
-                    ownExpeditions, ownCrew, List.of(), null, List.of(), List.of(), List.of());
+                    ownExpeditions, ownCrew, List.of(), null, List.of(), List.of(), List.of(),
+                    actor.settlementName(), false);
         }
         if (actor.role() == Role.SHIPBUILDER) {
             List<ApiModels.StockView> constructionStock = stock.stream()
                     .filter(item -> List.of("WOOD", "CLOTH", "RESIN").contains(item.resource()))
                     .toList();
             return new ApiModels.DemoState(
-                    List.of(), List.of(), List.of(), ship, constructionStock, List.of(), List.of());
+                    List.of(), List.of(), List.of(), ship, constructionStock, List.of(), List.of(),
+                    actor.settlementName(), false);
         }
         return new ApiModels.DemoState(
-                List.of(), List.of(), List.of(), ship, List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), ship, List.of(), List.of(), List.of(),
+                actor.settlementName(), false);
     }
 }

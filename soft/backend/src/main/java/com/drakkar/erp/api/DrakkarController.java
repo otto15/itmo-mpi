@@ -5,6 +5,7 @@ import com.drakkar.erp.application.AuthService;
 import com.drakkar.erp.application.DemoQueryService;
 import com.drakkar.erp.application.DemoResetService;
 import com.drakkar.erp.application.ExpeditionService;
+import com.drakkar.erp.application.SettlementService;
 import com.drakkar.erp.application.ShipyardService;
 import com.drakkar.erp.domain.AuthenticatedUser;
 import com.drakkar.erp.domain.Role;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -33,6 +35,7 @@ public class DrakkarController {
     private final CrewService crew;
     private final ShipyardService shipyard;
     private final ExpeditionService expeditions;
+    private final SettlementService settlements;
 
     public DrakkarController(
             DemoQueryService queries,
@@ -40,7 +43,8 @@ public class DrakkarController {
             DemoResetService resetService,
             CrewService crew,
             ShipyardService shipyard,
-            ExpeditionService expeditions
+            ExpeditionService expeditions,
+            SettlementService settlements
     ) {
         this.queries = queries;
         this.auth = auth;
@@ -48,6 +52,7 @@ public class DrakkarController {
         this.crew = crew;
         this.shipyard = shipyard;
         this.expeditions = expeditions;
+        this.settlements = settlements;
     }
 
     @PostMapping("/auth/login")
@@ -58,8 +63,7 @@ public class DrakkarController {
     @PostMapping("/auth/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(HttpServletRequest servletRequest) {
-        String authorization = servletRequest.getHeader("Authorization");
-        auth.logout(authorization.substring("Bearer ".length()));
+        auth.logout(bearer(servletRequest));
     }
 
     @GetMapping("/demo/state")
@@ -69,9 +73,19 @@ public class DrakkarController {
 
     @PostMapping("/demo/reset")
     public ApiModels.MessageResponse reset(HttpServletRequest servletRequest) {
-        RoleGuard.require(current(servletRequest).role(), Role.JARL);
-        resetService.reset();
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        resetService.reset(actor.settlementId());
         return new ApiModels.MessageResponse("DEMO_RESET", "Исходное состояние восстановлено");
+    }
+
+    @PostMapping("/provisioning/settlements")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiModels.ProvisionSettlementResponse provisionSettlement(
+            @RequestHeader(value = "X-Provisioning-Key", required = false) String provisioningKey,
+            @Valid @RequestBody ApiModels.ProvisionSettlementRequest request
+    ) {
+        return settlements.provision(provisioningKey, request);
     }
 
     @PostMapping("/expeditions/{expeditionId}/crew")
@@ -81,8 +95,9 @@ public class DrakkarController {
             @Valid @RequestBody ApiModels.AddCrewRequest request,
             HttpServletRequest servletRequest
     ) {
-        RoleGuard.require(current(servletRequest).role(), Role.JARL);
-        UUID assignmentId = crew.add(expeditionId, request);
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        UUID assignmentId = crew.add(actor, expeditionId, request);
         return new ApiModels.MessageResponse("CREW_MEMBER_ASSIGNED", assignmentId.toString());
     }
 
@@ -94,7 +109,7 @@ public class DrakkarController {
     ) {
         AuthenticatedUser actor = current(servletRequest);
         RoleGuard.require(actor.role(), Role.WARRIOR);
-        crew.decide(assignmentId, actor.id(), request);
+        crew.decide(actor, assignmentId, request);
         return new ApiModels.MessageResponse("PARTICIPATION_UPDATED", "Статус участия обновлён");
     }
 
@@ -104,8 +119,9 @@ public class DrakkarController {
             @Valid @RequestBody ApiModels.CompleteStageRequest request,
             HttpServletRequest servletRequest
     ) {
-        RoleGuard.require(current(servletRequest).role(), Role.SHIPBUILDER);
-        shipyard.completeStage(shipId, request);
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.SHIPBUILDER);
+        shipyard.completeStage(actor, shipId, request);
         return new ApiModels.MessageResponse("SHIP_STAGE_COMPLETED", "Этап завершён, ресурсы списаны атомарно");
     }
 
@@ -114,8 +130,9 @@ public class DrakkarController {
             @PathVariable UUID shipId,
             HttpServletRequest servletRequest
     ) {
-        RoleGuard.require(current(servletRequest).role(), Role.PRIEST);
-        shipyard.bless(shipId);
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.PRIEST);
+        shipyard.bless(actor, shipId);
         return new ApiModels.MessageResponse("SHIP_BLESSED", "Блот подтверждён жрецом");
     }
 
@@ -125,8 +142,9 @@ public class DrakkarController {
             @Valid @RequestBody ApiModels.FinalizeRequest request,
             HttpServletRequest servletRequest
     ) {
-        RoleGuard.require(current(servletRequest).role(), Role.JARL);
-        return expeditions.preview(expeditionId, request);
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        return expeditions.preview(actor, expeditionId, request);
     }
 
     @PostMapping("/expeditions/{expeditionId}/finalize")
@@ -135,11 +153,16 @@ public class DrakkarController {
             @Valid @RequestBody ApiModels.FinalizeRequest request,
             HttpServletRequest servletRequest
     ) {
-        RoleGuard.require(current(servletRequest).role(), Role.JARL);
-        return expeditions.finalizeExpedition(expeditionId, request);
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        return expeditions.finalizeExpedition(actor, expeditionId, request);
     }
 
     private AuthenticatedUser current(HttpServletRequest request) {
         return (AuthenticatedUser) request.getAttribute(AuthenticationFilter.USER_ATTRIBUTE);
+    }
+
+    private String bearer(HttpServletRequest request) {
+        return request.getHeader("Authorization").substring("Bearer ".length());
     }
 }

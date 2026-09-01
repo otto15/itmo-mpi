@@ -22,6 +22,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/drakkar
       DB_USER: ${DB_USER:-drakkar}
       DB_PASSWORD: ${DB_PASSWORD:-drakkar}
+      PROVISIONING_KEY: ${PROVISIONING_KEY:-local-provisioning-key}
     depends_on:
       postgres:
         condition: service_healthy

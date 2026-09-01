@@ -34,6 +34,7 @@ public class AuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return !request.getRequestURI().startsWith("/api/")
                 || request.getRequestURI().equals("/api/auth/login")
+                || request.getRequestURI().equals("/api/provisioning/settlements")
                 || request.getMethod().equals("OPTIONS");
     }
 

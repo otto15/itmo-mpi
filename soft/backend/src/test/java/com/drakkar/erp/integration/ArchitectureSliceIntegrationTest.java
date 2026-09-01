@@ -7,6 +7,7 @@ import com.drakkar.erp.application.DemoResetService;
 import com.drakkar.erp.application.ExpeditionService;
 import com.drakkar.erp.application.ShipyardService;
 import com.drakkar.erp.domain.DomainException;
+import com.drakkar.erp.domain.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +52,7 @@ class ArchitectureSliceIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.datasource.hikari.initialization-fail-timeout", () -> "30000");
         registry.add("spring.datasource.hikari.connection-timeout", () -> "30000");
+        registry.add("drakkar.provisioning-key", () -> "test-provisioning-key");
     }
 
     @Autowired CrewService crew;
@@ -132,10 +134,11 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void staleParticipationDecisionIsRejected() {
         var decision = new ApiModels.CrewDecisionRequest("CONFIRMED", 0);
+        AuthenticatedUser warrior = login("halvdan", "shield-2026");
 
-        crew.decide(PREPARATION_ASSIGNMENT, HALVDAN, decision);
+        crew.decide(warrior, PREPARATION_ASSIGNMENT, decision);
 
-        assertThatThrownBy(() -> crew.decide(PREPARATION_ASSIGNMENT, HALVDAN, decision))
+        assertThatThrownBy(() -> crew.decide(warrior, PREPARATION_ASSIGNMENT, decision))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("состав экспедиции уже был изменён");
         assertThat(jdbc.queryForObject(
@@ -145,44 +148,55 @@ class ArchitectureSliceIntegrationTest {
 
     @Test
     void insufficientStockRollsBackBothStockAndStage() {
-        jdbc.update("update warehouse_stock set quantity = 5 where resource = 'RESIN'");
+        AuthenticatedUser shipbuilder = login("floki", "oak-2026");
+        jdbc.update("""
+                update warehouse_stock set quantity = 5
+                 where settlement_id = ? and resource = 'RESIN'
+                """, DemoResetService.DEFAULT_SETTLEMENT_ID);
 
-        assertThatThrownBy(() -> shipyard.completeStage(SHIP, new ApiModels.CompleteStageRequest(0)))
+        assertThatThrownBy(() -> shipyard.completeStage(
+                shipbuilder, SHIP, new ApiModels.CompleteStageRequest(0)))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("Недостаточно ресурса RESIN");
 
         assertThat(jdbc.queryForObject("select stage from ship where id = ?", Integer.class, SHIP)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
-                "select quantity from warehouse_stock where resource = 'WOOD'", Integer.class)).isEqualTo(120);
+                "select quantity from warehouse_stock where settlement_id = ? and resource = 'WOOD'",
+                Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(120);
     }
 
     @Test
     void finalShipStageRequiresPriestBlessing() {
+        AuthenticatedUser shipbuilder = login("floki", "oak-2026");
+        AuthenticatedUser priest = login("godi", "blot-2026");
         jdbc.update("update ship set stage = 3 where id = ?", SHIP);
 
-        assertThatThrownBy(() -> shipyard.completeStage(SHIP, new ApiModels.CompleteStageRequest(0)))
+        assertThatThrownBy(() -> shipyard.completeStage(
+                shipbuilder, SHIP, new ApiModels.CompleteStageRequest(0)))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("Ожидается благословение Жреца");
 
-        shipyard.bless(SHIP);
-        shipyard.completeStage(SHIP, new ApiModels.CompleteStageRequest(1));
+        shipyard.bless(priest, SHIP);
+        shipyard.completeStage(shipbuilder, SHIP, new ApiModels.CompleteStageRequest(1));
 
         assertThat(jdbc.queryForObject("select stage from ship where id = ?", Integer.class, SHIP)).isEqualTo(4);
     }
 
     @Test
     void finalizationCommitsLedgerAndDatabaseMakesResultsImmutable() {
+        AuthenticatedUser jarl = login("ragnar", "raven-2026");
         var request = new ApiModels.FinalizeRequest(
                 new ApiModels.LootRequest(100, 50, 10), List.of(FALLEN_ASSIGNMENT), 0);
 
-        List<ApiModels.AllocationView> preview = expeditions.preview(SAILING_EXPEDITION, request);
-        List<ApiModels.AllocationView> committed = expeditions.finalizeExpedition(SAILING_EXPEDITION, request);
+        List<ApiModels.AllocationView> preview = expeditions.preview(jarl, SAILING_EXPEDITION, request);
+        List<ApiModels.AllocationView> committed = expeditions.finalizeExpedition(jarl, SAILING_EXPEDITION, request);
 
         assertThat(committed).isEqualTo(preview);
         assertThat(jdbc.queryForObject(
                 "select status from expedition where id = ?", String.class, SAILING_EXPEDITION)).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject(
-                "select quantity from warehouse_stock where resource = 'GOLD'", Integer.class)).isEqualTo(140);
+                "select quantity from warehouse_stock where settlement_id = ? and resource = 'GOLD'",
+                Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(140);
         assertThat(jdbc.queryForObject(
                 "select count(*) from wergild_allocation where expedition_id = ?", Integer.class, SAILING_EXPEDITION))
                 .isEqualTo(preview.size());
@@ -190,8 +204,65 @@ class ArchitectureSliceIntegrationTest {
         assertThatThrownBy(() -> jdbc.update(
                 "update expedition set loot_gold = 999 where id = ?", SAILING_EXPEDITION))
                 .isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(() -> expeditions.finalizeExpedition(SAILING_EXPEDITION, request))
+        assertThatThrownBy(() -> expeditions.finalizeExpedition(jarl, SAILING_EXPEDITION, request))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("доступны только для чтения");
+    }
+
+    @Test
+    void provisioningCreatesIsolatedSettlementAndItsFirstJarlAccount() throws Exception {
+        String payload = """
+                {
+                  "settlementName":"Бирка",
+                  "jarlDisplayName":"Эрик Биркский",
+                  "username":"erik",
+                  "password":"birka-pass-2026"
+                }
+                """;
+
+        mockMvc.perform(post("/api/provisioning/settlements")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PROVISIONING_FORBIDDEN"));
+
+        mockMvc.perform(post("/api/provisioning/settlements")
+                        .header("X-Provisioning-Key", "test-provisioning-key")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.settlementName").value("Бирка"))
+                .andExpect(jsonPath("$.username").value("erik"));
+
+        ApiModels.LoginResponse birkaLogin = auth.login(new ApiModels.LoginRequest("erik", "birka-pass-2026"));
+        String birkaAuthorization = "Bearer " + birkaLogin.token();
+
+        mockMvc.perform(get("/api/demo/state").header("Authorization", birkaAuthorization))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeSettlementName").value("Бирка"))
+                .andExpect(jsonPath("$.expeditions").isEmpty())
+                .andExpect(jsonPath("$.stock.length()").value(6))
+                .andExpect(jsonPath("$.settlements").doesNotExist());
+
+        String finalizePayload = """
+                {"loot":{"gold":1,"provisions":1,"thralls":0},"fallenAssignmentIds":[],"expectedVersion":0}
+                """;
+        mockMvc.perform(post("/api/expeditions/{id}/finalization-preview", SAILING_EXPEDITION)
+                        .header("Authorization", birkaAuthorization)
+                        .contentType("application/json")
+                        .content(finalizePayload))
+                .andExpect(status().isNotFound());
+
+        ApiModels.LoginResponse kattegatLogin = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026"));
+        mockMvc.perform(get("/api/demo/state")
+                        .header("Authorization", "Bearer " + kattegatLogin.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeSettlementName").value("Каттегат"))
+                .andExpect(jsonPath("$.expeditions.length()").value(2));
+    }
+
+    private AuthenticatedUser login(String username, String password) {
+        ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest(username, password));
+        return auth.authenticate(login.token());
     }
 }

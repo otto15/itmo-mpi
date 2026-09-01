@@ -65,4 +65,6 @@ export type DemoState = {
   stock: Stock[]
   allocations: Allocation[]
   audit: Audit[]
+  activeSettlementName: string
+  demoResetAvailable: boolean
 }

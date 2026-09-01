@@ -14,10 +14,17 @@ public class AuditWriter {
         this.jdbc = jdbc;
     }
 
-    public void append(Role actor, String eventType, String aggregateType, UUID aggregateId, String jsonDetails) {
+    public void append(
+            UUID settlementId,
+            Role actor,
+            String eventType,
+            String aggregateType,
+            UUID aggregateId,
+            String jsonDetails
+    ) {
         jdbc.update("""
-                insert into audit_event(actor_role, event_type, aggregate_type, aggregate_id, details)
-                values (?, ?, ?, ?, cast(? as jsonb))
-                """, actor.name(), eventType, aggregateType, aggregateId, jsonDetails);
+                insert into audit_event(settlement_id, actor_role, event_type, aggregate_type, aggregate_id, details)
+                values (?, ?, ?, ?, ?, cast(? as jsonb))
+                """, settlementId, actor.name(), eventType, aggregateType, aggregateId, jsonDetails);
     }
 }

@@ -4,6 +4,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -21,7 +23,9 @@ public final class ApiModels {
             ShipView ship,
             List<StockView> stock,
             List<AllocationView> allocations,
-            List<AuditView> audit
+            List<AuditView> audit,
+            String activeSettlementName,
+            boolean demoResetAvailable
     ) {
     }
 
@@ -133,6 +137,19 @@ public final class ApiModels {
             String displayName,
             String role
     ) {
+    }
+
+    public record ProvisionSettlementRequest(
+            @NotBlank @Size(max = 160) String settlementName,
+            @NotBlank @Size(max = 120) String jarlDisplayName,
+            @NotBlank @Size(max = 80)
+            @Pattern(regexp = "[A-Za-z0-9._-]+", message = "допустимы латинские буквы, цифры, точка, дефис и подчёркивание")
+            String username,
+            @NotBlank @Size(min = 10, max = 200) String password
+    ) {
+    }
+
+    public record ProvisionSettlementResponse(UUID settlementId, String settlementName, String username) {
     }
 
     public record ErrorResponse(String code, String message, Instant timestamp) {
