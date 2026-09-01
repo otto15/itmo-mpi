@@ -1,0 +1,15 @@
+.DS_Store
+~$*.docx
+~$*.xlsx
+*.tmp
+
+# Локальные файлы приложения
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.env
+.idea/
+.vscode/
