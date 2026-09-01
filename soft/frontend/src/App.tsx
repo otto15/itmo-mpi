@@ -125,7 +125,7 @@ function App() {
         {!state ? <Loading /> : (
           <div className="content">
             {tab === 'overview' && <Overview state={state} session={session} busy={busy} perform={perform} />}
-            {tab === 'crew' && <CrewModule state={state} session={session} busy={busy} perform={perform} setNotice={setNotice} loadState={loadState} />}
+            {tab === 'crew' && <CrewModule state={state} session={session} busy={busy} perform={perform} />}
             {tab === 'shipyard' && <ShipyardModule state={state} session={session} busy={busy} perform={perform} />}
             {tab === 'results' && <ResultsModule state={state} session={session} busy={busy} perform={perform} />}
             {tab === 'audit' && <AuditModule state={state} />}
@@ -196,24 +196,12 @@ function Overview({ state, session, busy, perform }: ModuleProps) {
   )
 }
 
-function CrewModule({ state, session, busy, perform, setNotice, loadState }: ModuleProps & { setNotice: (n: Notice) => void; loadState: () => Promise<void> }) {
+function CrewModule({ state, session, busy, perform }: ModuleProps) {
   const expedition = state.expeditions.find(item => item.status === 'PREPARATION')
   const members = state.crew.filter(item => item.expeditionId === expedition?.id)
   const [userId, setUserId] = useState(state.availableUsers[0]?.id ?? '')
   const [expeditionRole, setExpeditionRole] = useState('разведчик')
   const pendingMine = members.find(item => item.userId === session.userId && item.participationStatus === 'PENDING')
-
-  async function race(member: Crew) {
-    setNotice(null)
-    const body = { decision: 'CONFIRMED', expectedVersion: member.version }
-    const attempts = await Promise.allSettled([
-      api(`/api/crew/${member.id}/decision`, session.token, body),
-      api(`/api/crew/${member.id}/decision`, session.token, body)
-    ])
-    await loadState()
-    const rejected = attempts.find(item => item.status === 'rejected') as PromiseRejectedResult | undefined
-    setNotice({ kind: rejected ? 'ok' : 'error', text: rejected ? `Один запрос принят, второй отклонён: ${messageOf(rejected.reason)}` : 'Конфликт не воспроизведён' })
-  }
 
   return <section className="module-grid">
     <div className="panel wide">
@@ -235,7 +223,6 @@ function CrewModule({ state, session, busy, perform, setNotice, loadState }: Mod
         <div className="button-stack">
           <button className="primary" disabled={busy} onClick={() => void perform(() => api(`/api/crew/${pendingMine.id}/decision`, session.token, { decision: 'CONFIRMED', expectedVersion: pendingMine.version }), 'Участие подтверждено')}>Подтвердить</button>
           <button className="secondary danger" disabled={busy} onClick={() => void perform(() => api(`/api/crew/${pendingMine.id}/decision`, session.token, { decision: 'DECLINED', expectedVersion: pendingMine.version }), 'Отказ зафиксирован')}>Отказаться</button>
-          <button className="race-button" disabled={busy} onClick={() => void race(pendingMine)}>⚡ Отправить два ответа одновременно</button>
         </div>
       </> : <div className="empty-state"><b>Нет ожидающих назначений</b><span>Восстановите демо из обзора</span></div>}
     </div>

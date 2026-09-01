@@ -98,7 +98,7 @@ main { grid-column: 2; min-width: 0; }
 .inline-form { display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 9px; margin-top: 22px; }
 input, select { width: 100%; height: 42px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; outline: 0; color: #2d3935; background: #fff; font-size: 13px; }
 input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(185,121,45,.1); }
-.primary, .secondary, .race-button { min-height: 42px; padding: 10px 16px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 650; }
+.primary, .secondary { min-height: 42px; padding: 10px 16px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 650; }
 .primary { border: 1px solid var(--accent); color: #fff; background: var(--accent); }
 .primary:hover { border-color: var(--accent-hover); background: var(--accent-hover); }
 .primary.large { width: 100%; min-height: 46px; margin-top: 22px; }
@@ -111,8 +111,6 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .assignment span { color: var(--muted); font-size: 12px; }
 .assignment b { margin-top: 7px; font-size: 18px; }
 .button-stack { display: grid; gap: 8px; }
-.race-button { margin-top: 7px; border: 1px solid #dfbd93; color: #8c5b23; background: #fffaf4; font-weight: 500; }
-.race-button:hover { background: #fbf0e2; }
 .role-prompt { display: flex; align-items: center; gap: 11px; margin-top: 17px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #f7f8f7; }
 .role-prompt > span { color: var(--accent); font-size: 20px; }
 .role-prompt b, .role-prompt small { display: block; }
