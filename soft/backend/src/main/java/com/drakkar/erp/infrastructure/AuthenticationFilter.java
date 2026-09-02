@@ -1,7 +1,7 @@
 package com.drakkar.erp.infrastructure;
 
-import com.drakkar.erp.api.ApiModels;
-import com.drakkar.erp.application.AuthService;
+import com.drakkar.erp.dto.ApiModels;
+import com.drakkar.erp.service.AuthService;
 import com.drakkar.erp.domain.DomainException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;

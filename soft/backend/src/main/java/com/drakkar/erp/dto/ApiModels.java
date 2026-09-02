@@ -1,4 +1,4 @@
-package com.drakkar.erp.api;
+package com.drakkar.erp.dto;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;

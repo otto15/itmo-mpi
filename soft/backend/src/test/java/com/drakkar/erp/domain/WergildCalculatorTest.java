@@ -1,7 +1,4 @@
-package com.drakkar.erp.application;
-
-import com.drakkar.erp.domain.Loot;
-import com.drakkar.erp.domain.WergildCalculator;
+package com.drakkar.erp.domain;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

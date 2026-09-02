@@ -1,11 +1,11 @@
 package com.drakkar.erp.integration;
 
-import com.drakkar.erp.api.ApiModels;
-import com.drakkar.erp.application.CrewService;
-import com.drakkar.erp.application.AuthService;
-import com.drakkar.erp.application.DemoResetService;
-import com.drakkar.erp.application.ExpeditionService;
-import com.drakkar.erp.application.ShipyardService;
+import com.drakkar.erp.dto.ApiModels;
+import com.drakkar.erp.service.CrewService;
+import com.drakkar.erp.service.AuthService;
+import com.drakkar.erp.service.DemoResetService;
+import com.drakkar.erp.service.ExpeditionService;
+import com.drakkar.erp.service.ShipyardService;
 import com.drakkar.erp.domain.DomainException;
 import com.drakkar.erp.domain.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;

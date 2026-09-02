@@ -1,16 +1,13 @@
-package com.drakkar.erp.application;
+package com.drakkar.erp.dao;
 
-import com.drakkar.erp.domain.DomainException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
 
-@Service
-public class DemoResetService {
-    public static final Long DEFAULT_SETTLEMENT_ID = 1L;
+@Repository
+public class DemoResetDao {
     private static final Long HALVDAN = 104L;
     private static final Long BJORN = 101L;
     private static final Long IVAR = 102L;
@@ -21,47 +18,12 @@ public class DemoResetService {
 
     private final JdbcTemplate jdbc;
 
-    public DemoResetService(JdbcTemplate jdbc) {
+    public DemoResetDao(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
-    @Transactional
-    public void reset() {
-        reset(DEFAULT_SETTLEMENT_ID);
-    }
-
-    @Transactional
     public void reset(Long settlementId) {
-        if (!DEFAULT_SETTLEMENT_ID.equals(settlementId)) {
-            throw DomainException.conflict(
-                    "DEMO_RESET_NOT_AVAILABLE",
-                    "Исходный набор данных доступен только для демонстрационного поселения");
-        }
-        jdbc.update("delete from audit_event where settlement_id = ?", settlementId);
-        jdbc.update("""
-                delete from wergild_allocation wa
-                 using expedition e
-                 where wa.expedition_id = e.id and e.settlement_id = ?
-                """, settlementId);
-        jdbc.update("""
-                delete from crew_assignment ca
-                 using expedition e
-                 where ca.expedition_id = e.id and e.settlement_id = ?
-                """, settlementId);
-        jdbc.update("delete from ship_build_request where settlement_id = ?", settlementId);
-        jdbc.update("""
-                delete from expedition_ship es
-                 using expedition e
-                 where es.expedition_id = e.id and e.settlement_id = ?
-                """, settlementId);
-        jdbc.update("""
-                delete from ship_stage_requirement sr
-                 using ship s
-                 where sr.ship_id = s.id and s.settlement_id = ?
-                """, settlementId);
-        jdbc.update("delete from ship where settlement_id = ?", settlementId);
-        jdbc.update("delete from expedition where settlement_id = ?", settlementId);
-        jdbc.update("delete from warehouse_stock where settlement_id = ?", settlementId);
+        clearSettlement(settlementId);
 
         Long sailing = 201L;
         Long preparation = 202L;
@@ -78,31 +40,16 @@ public class DemoResetService {
         Long stormPetrel = 407L;
         Long iceGull = 408L;
 
-        jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure)
-                values (?, ?, ?, ?, 'SAILING', ?)
-                """, sailing, settlementId, "Поход к берегам Уэссекса", "Аббатство и торговый порт",
-                LocalDate.of(2026, 9, 14));
-        jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure)
-                values (?, ?, ?, ?, 'PREPARATION', ?)
-                """, preparation, settlementId, "Экспедиция в Нортумбрию", "Монастырь Линдисфарн",
-                LocalDate.of(2026, 10, 2));
-        jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure)
-                values (?, ?, ?, ?, 'SAILING', ?)
-                """, sailingOrkney, settlementId, "Поход к Оркнейским островам",
-                "Гавань на острове Мейнленд", LocalDate.of(2026, 9, 22));
-        jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure)
-                values (?, ?, ?, ?, 'PREPARATION', ?)
-                """, readyPreparation, settlementId, "Поход к Шетландским островам",
-                "Поселение у пролива Брессей", LocalDate.of(2026, 10, 12));
-        jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure)
-                values (?, ?, ?, ?, 'PREPARATION', ?)
-                """, faroePreparation, settlementId, "Разведка Фарерских островов",
-                "Бухта Торсхавна", LocalDate.of(2026, 10, 20));
+        addExpedition(sailing, settlementId, "Поход к берегам Уэссекса",
+                "Аббатство и торговый порт", "SAILING", LocalDate.of(2026, 9, 14));
+        addExpedition(preparation, settlementId, "Экспедиция в Нортумбрию",
+                "Монастырь Линдисфарн", "PREPARATION", LocalDate.of(2026, 10, 2));
+        addExpedition(sailingOrkney, settlementId, "Поход к Оркнейским островам",
+                "Гавань на острове Мейнленд", "SAILING", LocalDate.of(2026, 9, 22));
+        addExpedition(readyPreparation, settlementId, "Поход к Шетландским островам",
+                "Поселение у пролива Брессей", "PREPARATION", LocalDate.of(2026, 10, 12));
+        addExpedition(faroePreparation, settlementId, "Разведка Фарерских островов",
+                "Бухта Торсхавна", "PREPARATION", LocalDate.of(2026, 10, 20));
         addCompletedExpedition(completedFrisia, settlementId,
                 "Поход к берегам Фризии", "Торговая гавань Дорестада",
                 LocalDate.of(2026, 7, 18), 80, 35, 6, 45);
@@ -123,10 +70,7 @@ public class DemoResetService {
         for (var stock : List.of(
                 new Stock("WOOD", 120), new Stock("CLOTH", 35), new Stock("RESIN", 22),
                 new Stock("GOLD", 40), new Stock("PROVISIONS", 90), new Stock("THRALLS", 0))) {
-            jdbc.update("""
-                    insert into warehouse_stock(settlement_id, resource, quantity)
-                    values (?, ?, ?)
-                    """, settlementId, stock.resource(), stock.quantity());
+            addStock(settlementId, stock);
         }
 
         jdbc.update("""
@@ -162,19 +106,16 @@ public class DemoResetService {
         addAudit(settlementId, "JARL", "EXPEDITION_FINALIZED", "EXPEDITION", completedFrisia, 1080,
                 "{\"summary\":\"Первый успешный поход сезона\"}");
         addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
-                321L, 1200,
-                "{\"expedition\":\"Поход к берегам Фризии\"}");
+                321L, 1200, "{\"expedition\":\"Поход к берегам Фризии\"}");
         addAudit(settlementId, "SHIPBUILDER", "SHIP_STAGE_COMPLETED", "SHIP", seaWolf, 768,
                 "{\"completedStage\":3}");
-        addAudit(settlementId, "PRIEST", "SHIP_BLESSED", "SHIP",
-                402L, 600,
+        addAudit(settlementId, "PRIEST", "SHIP_BLESSED", "SHIP", 402L, 600,
                 "{\"shipName\":\"Морской волк\"}");
         addAudit(settlementId, "JARL", "EXPEDITION_FINALIZED", "EXPEDITION", completedMan, 480,
                 "{\"summary\":\"Итоги похода утверждены\"}");
         addAudit(settlementId, "SHIPBUILDER", "SHIP_STAGE_COMPLETED", "SHIP", buildingShip, 72,
                 "{\"completedStage\":0}");
-        addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
-                311L, 36,
+        addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT", 311L, 36,
                 "{\"expedition\":\"Поход к берегам Уэссекса\"}");
         addAudit(settlementId, "JARL", "CREW_MEMBER_ASSIGNED", "EXPEDITION", preparation, 12,
                 "{\"assignmentId\":301}");
@@ -182,12 +123,48 @@ public class DemoResetService {
                 "{\"readyCapacity\":40,\"crewSize\":1}");
         addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION", readyPreparation, 48,
                 "{\"target\":\"Поселение у пролива Брессей\"}");
-        addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
-                324L, 24,
+        addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT", 324L, 24,
                 "{\"expedition\":\"Поход к Шетландским островам\"}");
-        addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION",
-                faroePreparation, 12,
+        addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION", faroePreparation, 12,
                 "{\"target\":\"Бухта Торсхавна\",\"invitedCrew\":1}");
+    }
+
+    private void clearSettlement(Long settlementId) {
+        jdbc.update("delete from audit_event where settlement_id = ?", settlementId);
+        jdbc.update("""
+                delete from wergild_allocation wa using expedition e
+                 where wa.expedition_id = e.id and e.settlement_id = ?
+                """, settlementId);
+        jdbc.update("""
+                delete from crew_assignment ca using expedition e
+                 where ca.expedition_id = e.id and e.settlement_id = ?
+                """, settlementId);
+        jdbc.update("delete from ship_build_request where settlement_id = ?", settlementId);
+        jdbc.update("""
+                delete from expedition_ship es using expedition e
+                 where es.expedition_id = e.id and e.settlement_id = ?
+                """, settlementId);
+        jdbc.update("""
+                delete from ship_stage_requirement sr using ship s
+                 where sr.ship_id = s.id and s.settlement_id = ?
+                """, settlementId);
+        jdbc.update("delete from ship where settlement_id = ?", settlementId);
+        jdbc.update("delete from expedition where settlement_id = ?", settlementId);
+        jdbc.update("delete from warehouse_stock where settlement_id = ?", settlementId);
+    }
+
+    private void addExpedition(
+            Long id,
+            Long settlementId,
+            String name,
+            String target,
+            String status,
+            LocalDate departure
+    ) {
+        jdbc.update("""
+                insert into expedition(id, settlement_id, name, target, status, planned_departure)
+                values (?, ?, ?, ?, ?, ?)
+                """, id, settlementId, name, target, status, departure);
     }
 
     private void addCompletedExpedition(
@@ -212,6 +189,33 @@ public class DemoResetService {
                 finalizedDaysAgo, gold, provisions, thralls);
     }
 
+    private void addCrew(Long id, Long expeditionId, Long userId, String role, String status) {
+        jdbc.update("""
+                insert into crew_assignment(id, expedition_id, user_id, expedition_role, participation_status)
+                values (?, ?, ?, ?, ?)
+                """, id, expeditionId, userId, role, status);
+    }
+
+    private void addStock(Long settlementId, Stock stock) {
+        jdbc.update("""
+                insert into warehouse_stock(settlement_id, resource, quantity)
+                values (?, ?, ?)
+                """, settlementId, stock.resource(), stock.quantity());
+    }
+
+    private void addReadyShip(Long shipId, Long settlementId, String name, String typeCode) {
+        jdbc.update("""
+                insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
+                values (?, ?, ?, ?, 4, true)
+                """, shipId, settlementId, name, typeCode);
+    }
+
+    private void addShipToExpedition(Long expeditionId, Long shipId) {
+        jdbc.update("""
+                insert into expedition_ship(expedition_id, ship_id) values (?, ?)
+                """, expeditionId, shipId);
+    }
+
     private void addAudit(
             Long settlementId,
             String actorRole,
@@ -228,26 +232,6 @@ public class DemoResetService {
                 )
                 values (?, now() - (? * interval '1 hour'), ?, ?, ?, ?, cast(? as jsonb))
                 """, settlementId, hoursAgo, actorRole, eventType, aggregateType, aggregateId, details);
-    }
-
-    private void addCrew(Long id, Long expeditionId, Long userId, String role, String status) {
-        jdbc.update("""
-                insert into crew_assignment(id, expedition_id, user_id, expedition_role, participation_status)
-                values (?, ?, ?, ?, ?)
-                """, id, expeditionId, userId, role, status);
-    }
-
-    private void addReadyShip(Long shipId, Long settlementId, String name, String typeCode) {
-        jdbc.update("""
-                insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
-                values (?, ?, ?, ?, 4, true)
-                """, shipId, settlementId, name, typeCode);
-    }
-
-    private void addShipToExpedition(Long expeditionId, Long shipId) {
-        jdbc.update("""
-                insert into expedition_ship(expedition_id, ship_id) values (?, ?)
-                """, expeditionId, shipId);
     }
 
     private record Stock(String resource, int quantity) {

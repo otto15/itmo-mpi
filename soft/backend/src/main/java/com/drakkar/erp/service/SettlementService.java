@@ -1,18 +1,19 @@
-package com.drakkar.erp.application;
+package com.drakkar.erp.service;
 
-import com.drakkar.erp.api.ApiModels;
+import com.drakkar.erp.dto.ApiModels;
+import com.drakkar.erp.dao.AuditDao;
+import com.drakkar.erp.dao.SettlementDao;
 import com.drakkar.erp.domain.DomainException;
 import com.drakkar.erp.domain.Role;
 import com.drakkar.erp.infrastructure.PasswordHasher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.Locale;
 
 @Service
@@ -21,18 +22,18 @@ public class SettlementService {
             "WOOD", "CLOTH", "RESIN", "GOLD", "PROVISIONS", "THRALLS"
     );
 
-    private final JdbcTemplate jdbc;
-    private final AuditWriter audit;
+    private final SettlementDao dao;
+    private final AuditDao audit;
     private final PasswordHasher passwordHasher;
     private final String provisioningKey;
 
     public SettlementService(
-            JdbcTemplate jdbc,
-            AuditWriter audit,
+            SettlementDao dao,
+            AuditDao audit,
             PasswordHasher passwordHasher,
             @Value("${drakkar.provisioning-key}") String provisioningKey
     ) {
-        this.jdbc = jdbc;
+        this.dao = dao;
         this.audit = audit;
         this.passwordHasher = passwordHasher;
         this.provisioningKey = provisioningKey;
@@ -46,39 +47,20 @@ public class SettlementService {
         requireProvisioningKey(suppliedKey);
         String settlementName = request.settlementName().trim();
         String username = request.username().trim().toLowerCase(Locale.ROOT);
-
-        Integer duplicate = jdbc.query("""
-                select 1 from user_account where lower(username) = lower(?)
-                """, rs -> rs.next() ? 1 : null, username);
-        if (duplicate != null) {
+        if (dao.usernameExists(username)) {
             throw DomainException.conflict("USERNAME_ALREADY_EXISTS", "Логин уже используется");
         }
 
-        PasswordHasher.EncodedPassword password = passwordHasher.encode(request.password().toCharArray());
+        PasswordHasher.EncodedPassword password = passwordHasher.encode(
+                request.password().toCharArray());
+        Long settlementId = dao.createSettlement(settlementName);
+        Long jarlId = dao.createUser(request.jarlDisplayName().trim());
+        dao.createAccount(jarlId, username, password.salt(), password.hash());
+        dao.addJarlMembership(settlementId, jarlId);
+        STOCK_RESOURCES.forEach(resource -> dao.createEmptyStock(settlementId, resource));
 
-        Long settlementId = jdbc.queryForObject(
-                "insert into settlement(name) values (?) returning id",
-                Long.class,
-                settlementName);
-        Long jarlId = jdbc.queryForObject(
-                "insert into app_user(display_name) values (?) returning id",
-                Long.class,
-                request.jarlDisplayName().trim());
-        jdbc.update("""
-                insert into user_account(user_id, username, password_salt, password_hash)
-                values (?, ?, ?, ?)
-                """, jarlId, username, password.salt(), password.hash());
-        jdbc.update("""
-                insert into settlement_membership(settlement_id, user_id, member_role)
-                values (?, ?, 'JARL')
-                """, settlementId, jarlId);
-        for (String resource : STOCK_RESOURCES) {
-            jdbc.update("""
-                    insert into warehouse_stock(settlement_id, resource, quantity)
-                    values (?, ?, 0)
-                    """, settlementId, resource);
-        }
-        audit.append(settlementId, Role.JARL, "SETTLEMENT_CREATED", "SETTLEMENT", settlementId,
+        audit.append(
+                settlementId, Role.JARL, "SETTLEMENT_CREATED", "SETTLEMENT", settlementId,
                 "{\"name\":\"" + escapeJson(settlementName) + "\"}");
         return new ApiModels.ProvisionSettlementResponse(settlementId, settlementName, username);
     }

@@ -1,6 +1,7 @@
 package com.drakkar.erp.api;
 
 import com.drakkar.erp.domain.DomainException;
+import com.drakkar.erp.dto.ApiModels;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

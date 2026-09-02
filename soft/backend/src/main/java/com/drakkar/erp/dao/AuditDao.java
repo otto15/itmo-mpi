@@ -1,15 +1,14 @@
-package com.drakkar.erp.application;
+package com.drakkar.erp.dao;
 
 import com.drakkar.erp.domain.Role;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 
-
-@Component
-public class AuditWriter {
+@Repository
+public class AuditDao {
     private final JdbcTemplate jdbc;
 
-    public AuditWriter(JdbcTemplate jdbc) {
+    public AuditDao(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
