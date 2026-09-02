@@ -1,12 +1,10 @@
 package com.drakkar.erp.domain;
 
-import java.util.UUID;
-
 public record AuthenticatedUser(
-        UUID id,
+        Long id,
         String displayName,
         Role role,
-        UUID settlementId,
+        Long settlementId,
         String settlementName
 ) {
 }

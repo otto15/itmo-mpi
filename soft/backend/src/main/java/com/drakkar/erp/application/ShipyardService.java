@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class ShipyardService {
@@ -30,7 +29,7 @@ public class ShipyardService {
     }
 
     @Transactional
-    public void completeStage(AuthenticatedUser actor, UUID shipId, ApiModels.CompleteStageRequest request) {
+    public void completeStage(AuthenticatedUser actor, Long shipId, ApiModels.CompleteStageRequest request) {
         ShipRow ship = jdbc.query("""
                 select stage, blessed, version
                   from ship
@@ -96,7 +95,7 @@ public class ShipyardService {
     }
 
     @Transactional
-    public void assignReadyShip(AuthenticatedUser actor, UUID expeditionId, UUID shipId) {
+    public void assignReadyShip(AuthenticatedUser actor, Long expeditionId, Long shipId) {
         requirePreparation(actor.settlementId(), expeditionId);
         Integer ready = jdbc.query("""
                 select 1 from ship
@@ -106,13 +105,13 @@ public class ShipyardService {
         if (ready == null) {
             throw DomainException.conflict("SHIP_NOT_READY", "Выбранный корабль ещё не готов");
         }
-        UUID occupiedBy = jdbc.query("""
+        Long occupiedBy = jdbc.query("""
                 select e.id
                   from expedition_ship es
                   join expedition e on e.id = es.expedition_id
                  where es.ship_id = ? and e.status in ('PREPARATION', 'SAILING')
                  limit 1
-                """, rs -> rs.next() ? rs.getObject("id", UUID.class) : null, shipId);
+                """, rs -> rs.next() ? rs.getLong("id") : null, shipId);
         if (occupiedBy != null) {
             throw DomainException.conflict("SHIP_ALREADY_ASSIGNED", "Корабль уже назначен в активный поход");
         }
@@ -120,11 +119,11 @@ public class ShipyardService {
                 insert into expedition_ship(expedition_id, ship_id) values (?, ?)
                 """, expeditionId, shipId);
         audit.append(actor.settlementId(), actor.role(), "SHIP_ASSIGNED", "EXPEDITION", expeditionId,
-                "{\"shipId\":\"" + shipId + "\"}");
+                "{\"shipId\":" + shipId + "}");
     }
 
     @Transactional
-    public void removeShip(AuthenticatedUser actor, UUID expeditionId, UUID shipId) {
+    public void removeShip(AuthenticatedUser actor, Long expeditionId, Long shipId) {
         requirePreparation(actor.settlementId(), expeditionId);
         Integer assigned = jdbc.query("""
                 select 1
@@ -145,13 +144,13 @@ public class ShipyardService {
                  where settlement_id = ? and expedition_id = ? and ship_id = ?
                 """, actor.settlementId(), expeditionId, shipId);
         audit.append(actor.settlementId(), actor.role(), "SHIP_REMOVED", "EXPEDITION", expeditionId,
-                "{\"shipId\":\"" + shipId + "\"}");
+                "{\"shipId\":" + shipId + "}");
     }
 
     @Transactional
-    public UUID requestShip(
+    public Long requestShip(
             AuthenticatedUser actor,
-            UUID expeditionId,
+            Long expeditionId,
             ApiModels.RequestShipRequest request
     ) {
         requirePreparation(actor.settlementId(), expeditionId);
@@ -184,12 +183,11 @@ public class ShipyardService {
             throw DomainException.conflict("SHIP_NAME_ALREADY_EXISTS", "Корабль с таким именем уже существует");
         }
 
-        UUID shipId = UUID.randomUUID();
-        UUID requestId = UUID.randomUUID();
-        jdbc.update("""
-                insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
-                values (?, ?, ?, ?, 0, false)
-                """, shipId, actor.settlementId(), name, type.code());
+        Long shipId = jdbc.queryForObject("""
+                insert into ship(settlement_id, name, ship_type_code, stage, blessed)
+                values (?, ?, ?, 0, false)
+                returning id
+                """, Long.class, actor.settlementId(), name, type.code());
         jdbc.update("""
                 insert into ship_stage_requirement(ship_id, stage, resource, quantity)
                 select ?, stage, resource, quantity
@@ -198,19 +196,20 @@ public class ShipyardService {
         jdbc.update("""
                 insert into expedition_ship(expedition_id, ship_id) values (?, ?)
                 """, expeditionId, shipId);
-        jdbc.update("""
+        Long requestId = jdbc.queryForObject("""
                 insert into ship_build_request(
-                    id, settlement_id, expedition_id, ship_type_code, ship_id, requested_by, status
-                ) values (?, ?, ?, ?, ?, ?, 'IN_CONSTRUCTION')
-                """, requestId, actor.settlementId(), expeditionId, type.code(), shipId, actor.id());
+                    settlement_id, expedition_id, ship_type_code, ship_id, requested_by, status
+                ) values (?, ?, ?, ?, ?, 'IN_CONSTRUCTION')
+                returning id
+                """, Long.class, actor.settlementId(), expeditionId, type.code(), shipId, actor.id());
         audit.append(actor.settlementId(), actor.role(), "SHIP_BUILD_REQUESTED", "EXPEDITION", expeditionId,
-                "{\"requestId\":\"" + requestId + "\",\"shipName\":\""
+                "{\"requestId\":" + requestId + ",\"shipName\":\""
                         + escapeJson(name) + "\",\"capacity\":" + type.capacity() + "}");
         return requestId;
     }
 
     @Transactional
-    public void bless(AuthenticatedUser actor, UUID shipId) {
+    public void bless(AuthenticatedUser actor, Long shipId) {
         int changed = jdbc.update("""
                 update ship set blessed = true, version = version + 1
                  where id = ? and settlement_id = ? and blessed = false and stage = 3
@@ -222,7 +221,7 @@ public class ShipyardService {
         audit.append(actor.settlementId(), actor.role(), "SHIP_BLESSED", "SHIP", shipId, "{}");
     }
 
-    private void requirePreparation(UUID settlementId, UUID expeditionId) {
+    private void requirePreparation(Long settlementId, Long expeditionId) {
         String status = jdbc.query("""
                 select status from expedition
                  where id = ? and settlement_id = ?

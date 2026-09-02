@@ -4,7 +4,6 @@ import com.drakkar.erp.domain.Role;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
 
 @Component
 public class AuditWriter {
@@ -15,11 +14,11 @@ public class AuditWriter {
     }
 
     public void append(
-            UUID settlementId,
+            Long settlementId,
             Role actor,
             String eventType,
             String aggregateType,
-            UUID aggregateId,
+            Long aggregateId,
             String jsonDetails
     ) {
         jdbc.update("""

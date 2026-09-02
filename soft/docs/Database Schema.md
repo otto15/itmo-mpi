@@ -28,25 +28,25 @@ erDiagram
     WAREHOUSE_STOCK ||..o{ SHIP_STAGE_REQUIREMENT : "связан по поселению и ресурсу"
 
     SETTLEMENT {
-        uuid id PK
+        bigint id PK
         varchar name
         timestamptz created_at
     }
 
     SETTLEMENT_MEMBERSHIP {
-        uuid settlement_id PK, FK
-        uuid user_id PK, FK, UK
+        bigint settlement_id PK, FK
+        bigint user_id PK, FK, UK
         varchar member_role
         timestamptz joined_at
     }
 
     APP_USER {
-        uuid id PK
+        bigint id PK
         varchar display_name
     }
 
     USER_ACCOUNT {
-        uuid user_id PK, FK
+        bigint user_id PK, FK
         varchar username UK
         bytea password_salt
         bytea password_hash
@@ -55,16 +55,16 @@ erDiagram
 
     USER_SESSION {
         char token_hash PK
-        uuid user_id FK
-        uuid active_settlement_id FK
+        bigint user_id FK
+        bigint active_settlement_id FK
         timestamptz created_at
         timestamptz expires_at
         timestamptz revoked_at
     }
 
     EXPEDITION {
-        uuid id PK
-        uuid settlement_id FK
+        bigint id PK
+        bigint settlement_id FK
         varchar name
         varchar target
         varchar status
@@ -78,9 +78,9 @@ erDiagram
     }
 
     CREW_ASSIGNMENT {
-        uuid id PK
-        uuid expedition_id FK "может быть NULL после снятия с похода"
-        uuid user_id FK
+        bigint id PK
+        bigint expedition_id FK
+        bigint user_id FK
         varchar expedition_role
         varchar participation_status
         boolean alive
@@ -88,15 +88,15 @@ erDiagram
     }
 
     WAREHOUSE_STOCK {
-        uuid settlement_id PK, FK
+        bigint settlement_id PK, FK
         varchar resource PK
         integer quantity
         integer version
     }
 
     SHIP {
-        uuid id PK
-        uuid settlement_id FK
+        bigint id PK
+        bigint settlement_id FK
         varchar name
         varchar ship_type_code FK
         integer stage
@@ -105,7 +105,7 @@ erDiagram
     }
 
     SHIP_STAGE_REQUIREMENT {
-        uuid ship_id PK, FK
+        bigint ship_id PK, FK
         integer stage PK
         varchar resource PK
         integer quantity
@@ -125,25 +125,25 @@ erDiagram
     }
 
     EXPEDITION_SHIP {
-        uuid expedition_id PK, FK
-        uuid ship_id PK, FK
+        bigint expedition_id PK, FK
+        bigint ship_id PK, FK
         timestamptz assigned_at
     }
 
     SHIP_BUILD_REQUEST {
-        uuid id PK
-        uuid settlement_id FK
-        uuid expedition_id FK
+        bigint id PK
+        bigint settlement_id FK
+        bigint expedition_id FK
         varchar ship_type_code FK
-        uuid ship_id FK, UK
-        uuid requested_by FK
+        bigint ship_id FK, UK
+        bigint requested_by FK
         varchar status
         timestamptz created_at
     }
 
     WERGILD_ALLOCATION {
         bigint id PK
-        uuid expedition_id FK
+        bigint expedition_id FK
         varchar recipient
         varchar category
         integer gold
@@ -153,15 +153,17 @@ erDiagram
 
     AUDIT_EVENT {
         bigint id PK
-        uuid settlement_id FK
+        bigint settlement_id FK
         timestamptz happened_at
         varchar actor_role
         varchar event_type
         varchar aggregate_type
-        uuid aggregate_id
+        bigint aggregate_id
         jsonb details
     }
 ```
+
+Первичные ключи основных сущностей объявлены как `bigserial`; PostgreSQL выдаёт им значения из последовательности. Внешние ключи и полиморфный `audit_event.aggregate_id` имеют тип `bigint`. Отдельный механизм генерации идентификаторов приложению не требуется.
 
 ## Изоляция поселений
 

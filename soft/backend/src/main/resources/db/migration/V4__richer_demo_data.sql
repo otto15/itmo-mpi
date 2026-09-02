@@ -4,14 +4,14 @@ insert into expedition(
 )
 values
     (
-        '00000000-0000-0000-0000-000000000203',
-        '00000000-0000-0000-0000-000000000001',
+        203,
+        1,
         'Поход к берегам Фризии', 'Торговая гавань Дорестада', 'COMPLETED',
         '2026-07-18', 'Ворон', 1, now() - interval '45 days', 80, 35, 6
     ),
     (
-        '00000000-0000-0000-0000-000000000204',
-        '00000000-0000-0000-0000-000000000001',
+        204,
+        1,
         'Поход на остров Мэн', 'Крепость у Дугласа', 'COMPLETED',
         '2026-08-09', 'Морской волк', 1, now() - interval '20 days', 120, 60, 12
     )
@@ -23,38 +23,38 @@ insert into audit_event(
 )
 values
     (
-        '00000000-0000-0000-0000-000000000001', now() - interval '45 days',
+        1, now() - interval '45 days',
         'JARL', 'EXPEDITION_FINALIZED', 'EXPEDITION',
-        '00000000-0000-0000-0000-000000000203',
+        203,
         '{"summary":"Первый успешный поход сезона"}'::jsonb
     ),
     (
-        '00000000-0000-0000-0000-000000000001', now() - interval '25 days',
+        1, now() - interval '25 days',
         'PRIEST', 'SHIP_BLESSED', 'SHIP',
-        '00000000-0000-0000-0000-000000000402',
+        402,
         '{"shipName":"Морской волк"}'::jsonb
     ),
     (
-        '00000000-0000-0000-0000-000000000001', now() - interval '20 days',
+        1, now() - interval '20 days',
         'JARL', 'EXPEDITION_FINALIZED', 'EXPEDITION',
-        '00000000-0000-0000-0000-000000000204',
+        204,
         '{"summary":"Итоги похода утверждены"}'::jsonb
     ),
     (
-        '00000000-0000-0000-0000-000000000001', now() - interval '72 hours',
+        1, now() - interval '72 hours',
         'SHIPBUILDER', 'SHIP_STAGE_COMPLETED', 'SHIP',
-        '00000000-0000-0000-0000-000000000401',
+        401,
         '{"completedStage":0}'::jsonb
     ),
     (
-        '00000000-0000-0000-0000-000000000001', now() - interval '36 hours',
+        1, now() - interval '36 hours',
         'WARRIOR', 'PARTICIPATION_CONFIRMED', 'CREW_ASSIGNMENT',
-        '00000000-0000-0000-0000-000000000311',
+        311,
         '{"expedition":"Поход к берегам Уэссекса"}'::jsonb
     ),
     (
-        '00000000-0000-0000-0000-000000000001', now() - interval '12 hours',
+        1, now() - interval '12 hours',
         'JARL', 'CREW_MEMBER_ASSIGNED', 'EXPEDITION',
-        '00000000-0000-0000-0000-000000000202',
-        '{"assignmentId":"00000000-0000-0000-0000-000000000301"}'::jsonb
+        202,
+        '{"assignmentId":301}'::jsonb
     );

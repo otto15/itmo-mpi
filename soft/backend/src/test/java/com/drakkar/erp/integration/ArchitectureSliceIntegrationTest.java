@@ -22,7 +22,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.List;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,14 +34,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class ArchitectureSliceIntegrationTest {
-    private static final UUID PREPARATION_ASSIGNMENT = UUID.fromString("00000000-0000-0000-0000-000000000301");
-    private static final UUID HALVDAN = UUID.fromString("00000000-0000-0000-0000-000000000104");
-    private static final UUID BJORN = UUID.fromString("00000000-0000-0000-0000-000000000101");
-    private static final UUID SAILING_EXPEDITION = UUID.fromString("00000000-0000-0000-0000-000000000201");
-    private static final UUID PREPARATION_EXPEDITION = UUID.fromString("00000000-0000-0000-0000-000000000202");
-    private static final UUID READY_PREPARATION_EXPEDITION = UUID.fromString("00000000-0000-0000-0000-000000000207");
-    private static final UUID FALLEN_ASSIGNMENT = UUID.fromString("00000000-0000-0000-0000-000000000312");
-    private static final UUID SHIP = UUID.fromString("00000000-0000-0000-0000-000000000401");
+    private static final Long PREPARATION_ASSIGNMENT = 301L;
+    private static final Long HALVDAN = 104L;
+    private static final Long BJORN = 101L;
+    private static final Long SAILING_EXPEDITION = 201L;
+    private static final Long PREPARATION_EXPEDITION = 202L;
+    private static final Long READY_PREPARATION_EXPEDITION = 207L;
+    private static final Long FALLEN_ASSIGNMENT = 312L;
+    private static final Long SHIP = 401L;
 
     private static final String EXTERNAL_DATABASE_URL = System.getenv("TEST_DATABASE_URL");
     static PostgreSQLContainer<?> postgres;
@@ -148,7 +147,7 @@ class ArchitectureSliceIntegrationTest {
                 .andExpect(jsonPath("$.stock").isEmpty())
                 .andExpect(jsonPath("$.availableUsers").isEmpty())
                 .andExpect(jsonPath("$.crew.length()").value(2))
-                .andExpect(jsonPath("$.crew[0].userId").value(HALVDAN.toString()))
+                .andExpect(jsonPath("$.crew[0].userId").value(HALVDAN))
                 .andExpect(jsonPath("$.expeditions.length()").value(2));
     }
 
@@ -173,8 +172,8 @@ class ArchitectureSliceIntegrationTest {
         mockMvc.perform(get("/api/demo/state")
                         .header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.expeditions[?(@.id == '00000000-0000-0000-0000-000000000201')].fleet.length()").value(2))
-                .andExpect(jsonPath("$.expeditions[?(@.id == '00000000-0000-0000-0000-000000000201')].readyCapacity").value(60));
+                .andExpect(jsonPath("$.expeditions[?(@.id == 201)].fleet.length()").value(2))
+                .andExpect(jsonPath("$.expeditions[?(@.id == 201)].readyCapacity").value(60));
     }
 
     @Test
@@ -209,14 +208,14 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void jarlAssignsAvailableWarriorOnlyOnceAndWritesAudit() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
-        UUID thorstein = UUID.fromString("00000000-0000-0000-0000-000000000105");
+        Long thorstein = 105L;
         var request = new ApiModels.AddCrewRequest(thorstein, "разведчик");
         int auditBefore = jdbc.queryForObject("""
                 select count(*) from audit_event
                  where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID);
 
-        UUID assignmentId = crew.add(jarl, PREPARATION_EXPEDITION, request);
+        Long assignmentId = crew.add(jarl, PREPARATION_EXPEDITION, request);
 
         assertThat(jdbc.queryForObject(
                 "select participation_status from crew_assignment where id = ?",
@@ -242,10 +241,10 @@ class ArchitectureSliceIntegrationTest {
         mockMvc.perform(get("/api/demo/state")
                         .header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.crew[?(@.expeditionId == '" + SAILING_EXPEDITION
-                        + "' && @.userId == '" + BJORN
-                        + "' && @.participationStatus == 'CONFIRMED')]").isNotEmpty())
-                .andExpect(jsonPath("$.availableUsers[?(@.id == '" + BJORN + "')]").isEmpty());
+                .andExpect(jsonPath("$.crew[?(@.expeditionId == " + SAILING_EXPEDITION
+                        + " && @.userId == " + BJORN
+                        + " && @.participationStatus == 'CONFIRMED')]").isNotEmpty())
+                .andExpect(jsonPath("$.availableUsers[?(@.id == " + BJORN + ")]").isEmpty());
 
         assertThatThrownBy(() -> crew.add(
                 login("ragnar", "raven-2026"),
@@ -261,12 +260,12 @@ class ArchitectureSliceIntegrationTest {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
 
         crew.decide(warrior, PREPARATION_ASSIGNMENT, new ApiModels.CrewDecisionRequest("DECLINED", 0));
-        UUID assignmentId = crew.add(jarl, READY_PREPARATION_EXPEDITION,
+        Long assignmentId = crew.add(jarl, READY_PREPARATION_EXPEDITION,
                 new ApiModels.AddCrewRequest(HALVDAN, "разведчик"));
 
         assertThat(jdbc.queryForObject(
                 "select expedition_id from crew_assignment where id = ?",
-                UUID.class, assignmentId)).isEqualTo(READY_PREPARATION_EXPEDITION);
+                Long.class, assignmentId)).isEqualTo(READY_PREPARATION_EXPEDITION);
     }
 
     @Test
@@ -334,7 +333,7 @@ class ArchitectureSliceIntegrationTest {
 
     @Test
     void provisioningCreatesIsolatedSettlementAndItsFirstJarlAccount() throws Exception {
-        String username = "harald_" + UUID.randomUUID().toString().substring(0, 8);
+        String username = "harald_" + Long.toUnsignedString(System.nanoTime());
         String payload = """
                 {
                   "settlementName":"Хедебю",
@@ -402,15 +401,15 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void jarlRequestsShipFromCatalogAndRecipeIsSnapshottedForTheExpedition() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
-        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+        Long preparation = 202L;
 
-        UUID requestId = shipyard.requestShip(
+        Long requestId = shipyard.requestShip(
                 jarl,
                 preparation,
                 new ApiModels.RequestShipRequest("Скат", "KNOERR"));
 
-        UUID shipId = jdbc.queryForObject(
-                "select ship_id from ship_build_request where id = ?", UUID.class, requestId);
+        Long shipId = jdbc.queryForObject(
+                "select ship_id from ship_build_request where id = ?", Long.class, requestId);
         assertThat(jdbc.queryForObject(
                 "select count(*) from expedition_ship where expedition_id = ? and ship_id = ?",
                 Integer.class, preparation, shipId)).isEqualTo(1);
@@ -425,8 +424,8 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void jarlAddsAFreeReadyShipToAnExpeditionFleet() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
-        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
-        UUID freeShip = UUID.fromString("00000000-0000-0000-0000-000000000402");
+        Long preparation = 202L;
+        Long freeShip = 402L;
 
         shipyard.assignReadyShip(jarl, preparation, freeShip);
 
@@ -444,7 +443,7 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void jarlRemovesShipFromPreparationFleetAndDetachesItsBuildOrder() throws Exception {
         ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026"));
-        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+        Long preparation = 202L;
 
         mockMvc.perform(delete("/api/expeditions/{expeditionId}/ships/{shipId}", preparation, SHIP)
                         .header("Authorization", "Bearer " + login.token()))
@@ -455,7 +454,7 @@ class ArchitectureSliceIntegrationTest {
                 """, Integer.class, preparation, SHIP)).isZero();
         assertThat(jdbc.queryForObject("""
                 select expedition_id from ship_build_request where ship_id = ?
-                """, UUID.class, SHIP)).isNull();
+                """, Long.class, SHIP)).isNull();
         assertThat(jdbc.queryForObject("""
                 select count(*) from audit_event where aggregate_id = ? and event_type = 'SHIP_REMOVED'
                 """, Integer.class, preparation)).isEqualTo(1);
@@ -464,8 +463,8 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void readyExpeditionStartsButIncompleteFleetIsRejected() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
-        UUID readyPreparation = UUID.fromString("00000000-0000-0000-0000-000000000207");
-        UUID incompletePreparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+        Long readyPreparation = 207L;
+        Long incompletePreparation = 202L;
 
         expeditions.start(jarl, readyPreparation, new ApiModels.StartExpeditionRequest(0));
 

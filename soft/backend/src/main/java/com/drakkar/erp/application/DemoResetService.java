@@ -7,17 +7,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class DemoResetService {
-    public static final UUID DEFAULT_SETTLEMENT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private static final UUID HALVDAN = UUID.fromString("00000000-0000-0000-0000-000000000104");
-    private static final UUID BJORN = UUID.fromString("00000000-0000-0000-0000-000000000101");
-    private static final UUID IVAR = UUID.fromString("00000000-0000-0000-0000-000000000102");
-    private static final UUID FLOKI = UUID.fromString("00000000-0000-0000-0000-000000000103");
-    private static final UUID ULF = UUID.fromString("00000000-0000-0000-0000-000000000109");
-    private static final UUID ASTRID = UUID.fromString("00000000-0000-0000-0000-000000000110");
+    public static final Long DEFAULT_SETTLEMENT_ID = 1L;
+    private static final Long HALVDAN = 104L;
+    private static final Long BJORN = 101L;
+    private static final Long IVAR = 102L;
+    private static final Long FLOKI = 103L;
+    private static final Long ULF = 109L;
+    private static final Long ASTRID = 110L;
 
     private final JdbcTemplate jdbc;
 
@@ -31,7 +30,7 @@ public class DemoResetService {
     }
 
     @Transactional
-    public void reset(UUID settlementId) {
+    public void reset(Long settlementId) {
         if (!DEFAULT_SETTLEMENT_ID.equals(settlementId)) {
             throw DomainException.conflict(
                     "DEMO_RESET_NOT_AVAILABLE",
@@ -63,19 +62,19 @@ public class DemoResetService {
         jdbc.update("delete from expedition where settlement_id = ?", settlementId);
         jdbc.update("delete from warehouse_stock where settlement_id = ?", settlementId);
 
-        UUID sailing = UUID.fromString("00000000-0000-0000-0000-000000000201");
-        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
-        UUID completedFrisia = UUID.fromString("00000000-0000-0000-0000-000000000203");
-        UUID completedMan = UUID.fromString("00000000-0000-0000-0000-000000000204");
-        UUID sailingOrkney = UUID.fromString("00000000-0000-0000-0000-000000000206");
-        UUID readyPreparation = UUID.fromString("00000000-0000-0000-0000-000000000207");
-        UUID buildingShip = UUID.fromString("00000000-0000-0000-0000-000000000401");
-        UUID seaWolf = UUID.fromString("00000000-0000-0000-0000-000000000402");
-        UUID seaSerpent = UUID.fromString("00000000-0000-0000-0000-000000000403");
-        UUID wolfFang = UUID.fromString("00000000-0000-0000-0000-000000000404");
-        UUID raven = UUID.fromString("00000000-0000-0000-0000-000000000405");
-        UUID stormPetrel = UUID.fromString("00000000-0000-0000-0000-000000000407");
-        UUID iceGull = UUID.fromString("00000000-0000-0000-0000-000000000408");
+        Long sailing = 201L;
+        Long preparation = 202L;
+        Long completedFrisia = 203L;
+        Long completedMan = 204L;
+        Long sailingOrkney = 206L;
+        Long readyPreparation = 207L;
+        Long buildingShip = 401L;
+        Long seaWolf = 402L;
+        Long seaSerpent = 403L;
+        Long wolfFang = 404L;
+        Long raven = 405L;
+        Long stormPetrel = 407L;
+        Long iceGull = 408L;
 
         jdbc.update("""
                 insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
@@ -104,22 +103,14 @@ public class DemoResetService {
                 "Поход на остров Мэн", "Крепость у Дугласа",
                 LocalDate.of(2026, 8, 9), 40, 120, 60, 12, 20);
 
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000301"),
-                preparation, HALVDAN, "рулевой", "PENDING");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000311"),
-                sailing, BJORN, "херсир", "CONFIRMED");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000312"),
-                sailing, IVAR, "щитоносец", "CONFIRMED");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000313"),
-                sailing, FLOKI, "корабельный мастер", "CONFIRMED");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000321"),
-                completedFrisia, HALVDAN, "разведчик", "CONFIRMED");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000322"),
-                completedMan, BJORN, "херсир", "CONFIRMED");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000323"),
-                sailingOrkney, ULF, "рулевой", "CONFIRMED");
-        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000324"),
-                readyPreparation, ASTRID, "херсир", "CONFIRMED");
+        addCrew(301L, preparation, HALVDAN, "рулевой", "PENDING");
+        addCrew(311L, sailing, BJORN, "херсир", "CONFIRMED");
+        addCrew(312L, sailing, IVAR, "щитоносец", "CONFIRMED");
+        addCrew(313L, sailing, FLOKI, "корабельный мастер", "CONFIRMED");
+        addCrew(321L, completedFrisia, HALVDAN, "разведчик", "CONFIRMED");
+        addCrew(322L, completedMan, BJORN, "херсир", "CONFIRMED");
+        addCrew(323L, sailingOrkney, ULF, "рулевой", "CONFIRMED");
+        addCrew(324L, readyPreparation, ASTRID, "херсир", "CONFIRMED");
 
         for (var stock : List.of(
                 new Stock("WOOD", 120), new Stock("CLOTH", 35), new Stock("RESIN", 22),
@@ -158,40 +149,39 @@ public class DemoResetService {
                 insert into ship_build_request(
                     id, settlement_id, expedition_id, ship_type_code, ship_id, requested_by, status, created_at
                 ) values (?, ?, ?, 'DRAKKAR', ?, ?, 'IN_CONSTRUCTION', now() - interval '4 days')
-                """, UUID.fromString("00000000-0000-0000-0000-000000000501"), settlementId,
-                preparation, buildingShip, UUID.fromString("00000000-0000-0000-0000-000000000106"));
+                """, 501L, settlementId, preparation, buildingShip, 106L);
 
         addAudit(settlementId, "JARL", "EXPEDITION_FINALIZED", "EXPEDITION", completedFrisia, 1080,
                 "{\"summary\":\"Первый успешный поход сезона\"}");
         addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
-                UUID.fromString("00000000-0000-0000-0000-000000000321"), 1200,
+                321L, 1200,
                 "{\"expedition\":\"Поход к берегам Фризии\"}");
         addAudit(settlementId, "SHIPBUILDER", "SHIP_STAGE_COMPLETED", "SHIP", seaWolf, 768,
                 "{\"completedStage\":3}");
         addAudit(settlementId, "PRIEST", "SHIP_BLESSED", "SHIP",
-                UUID.fromString("00000000-0000-0000-0000-000000000402"), 600,
+                402L, 600,
                 "{\"shipName\":\"Морской волк\"}");
         addAudit(settlementId, "JARL", "EXPEDITION_FINALIZED", "EXPEDITION", completedMan, 480,
                 "{\"summary\":\"Итоги похода утверждены\"}");
         addAudit(settlementId, "SHIPBUILDER", "SHIP_STAGE_COMPLETED", "SHIP", buildingShip, 72,
                 "{\"completedStage\":0}");
         addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
-                UUID.fromString("00000000-0000-0000-0000-000000000311"), 36,
+                311L, 36,
                 "{\"expedition\":\"Поход к берегам Уэссекса\"}");
         addAudit(settlementId, "JARL", "CREW_MEMBER_ASSIGNED", "EXPEDITION", preparation, 12,
-                "{\"assignmentId\":\"00000000-0000-0000-0000-000000000301\"}");
+                "{\"assignmentId\":301}");
         addAudit(settlementId, "JARL", "EXPEDITION_STARTED", "EXPEDITION", sailingOrkney, 144,
                 "{\"readyCapacity\":40,\"confirmedCrew\":1}");
         addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION", readyPreparation, 48,
                 "{\"target\":\"Поселение у пролива Брессей\"}");
         addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
-                UUID.fromString("00000000-0000-0000-0000-000000000324"), 24,
+                324L, 24,
                 "{\"expedition\":\"Поход к Шетландским островам\"}");
     }
 
     private void addCompletedExpedition(
-            UUID id,
-            UUID settlementId,
+            Long id,
+            Long settlementId,
             String name,
             String target,
             LocalDate departure,
@@ -213,11 +203,11 @@ public class DemoResetService {
     }
 
     private void addAudit(
-            UUID settlementId,
+            Long settlementId,
             String actorRole,
             String eventType,
             String aggregateType,
-            UUID aggregateId,
+            Long aggregateId,
             int hoursAgo,
             String details
     ) {
@@ -230,21 +220,21 @@ public class DemoResetService {
                 """, settlementId, hoursAgo, actorRole, eventType, aggregateType, aggregateId, details);
     }
 
-    private void addCrew(UUID id, UUID expeditionId, UUID userId, String role, String status) {
+    private void addCrew(Long id, Long expeditionId, Long userId, String role, String status) {
         jdbc.update("""
                 insert into crew_assignment(id, expedition_id, user_id, expedition_role, participation_status)
                 values (?, ?, ?, ?, ?)
                 """, id, expeditionId, userId, role, status);
     }
 
-    private void addReadyShip(UUID shipId, UUID settlementId, String name, String typeCode) {
+    private void addReadyShip(Long shipId, Long settlementId, String name, String typeCode) {
         jdbc.update("""
                 insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
                 values (?, ?, ?, ?, 4, true)
                 """, shipId, settlementId, name, typeCode);
     }
 
-    private void addShipToExpedition(UUID expeditionId, UUID shipId) {
+    private void addShipToExpedition(Long expeditionId, Long shipId) {
         jdbc.update("""
                 insert into expedition_ship(expedition_id, ship_id) values (?, ?)
                 """, expeditionId, shipId);

@@ -10,7 +10,6 @@ import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 
 public final class ApiModels {
     private ApiModels() {
@@ -30,7 +29,7 @@ public final class ApiModels {
     }
 
     public record ExpeditionView(
-            UUID id,
+            Long id,
             String name,
             String target,
             String status,
@@ -47,9 +46,9 @@ public final class ApiModels {
     }
 
     public record CrewView(
-            UUID id,
-            UUID expeditionId,
-            UUID userId,
+            Long id,
+            Long expeditionId,
+            Long userId,
             String userName,
             String expeditionRole,
             String participationStatus,
@@ -58,11 +57,11 @@ public final class ApiModels {
     ) {
     }
 
-    public record UserView(UUID id, String displayName, String systemRole) {
+    public record UserView(Long id, String displayName, String systemRole) {
     }
 
     public record ShipView(
-            UUID id,
+            Long id,
             String name,
             String typeCode,
             String typeName,
@@ -73,7 +72,7 @@ public final class ApiModels {
             boolean blessed,
             int version,
             boolean available,
-            UUID expeditionId,
+            Long expeditionId,
             String expeditionName,
             String requestStatus,
             List<RequirementView> requirements
@@ -81,7 +80,7 @@ public final class ApiModels {
     }
 
     public record FleetShipView(
-            UUID id,
+            Long id,
             String name,
             String typeName,
             int capacity,
@@ -117,7 +116,7 @@ public final class ApiModels {
             String actorRole,
             String eventType,
             String aggregateType,
-            UUID aggregateId,
+            Long aggregateId,
             String details
     ) {
     }
@@ -136,7 +135,7 @@ public final class ApiModels {
     }
 
     public record AddCrewRequest(
-            @NotNull UUID userId,
+            @NotNull Long userId,
             @NotBlank String expeditionRole
     ) {
     }
@@ -144,7 +143,7 @@ public final class ApiModels {
     public record CompleteStageRequest(@Min(0) int expectedVersion) {
     }
 
-    public record AssignShipRequest(@NotNull UUID shipId) {
+    public record AssignShipRequest(@NotNull Long shipId) {
     }
 
     public record StartExpeditionRequest(@Min(0) int expectedVersion) {
@@ -158,7 +157,7 @@ public final class ApiModels {
 
     public record FinalizeRequest(
             @Valid @NotNull LootRequest loot,
-            List<UUID> fallenAssignmentIds,
+            List<Long> fallenAssignmentIds,
             @Min(0) int expectedVersion
     ) {
         public FinalizeRequest {
@@ -178,7 +177,7 @@ public final class ApiModels {
     public record LoginResponse(
             String token,
             Instant expiresAt,
-            UUID userId,
+            Long userId,
             String displayName,
             String role
     ) {
@@ -194,7 +193,7 @@ public final class ApiModels {
     ) {
     }
 
-    public record ProvisionSettlementResponse(UUID settlementId, String settlementName, String username) {
+    public record ProvisionSettlementResponse(Long settlementId, String settlementName, String username) {
     }
 
     public record ErrorResponse(String code, String message, Instant timestamp) {

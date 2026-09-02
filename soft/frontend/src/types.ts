@@ -3,7 +3,7 @@ export type Role = 'JARL' | 'WARRIOR' | 'SHIPBUILDER' | 'PRIEST'
 export type Session = {
   token: string
   expiresAt: string
-  userId: string
+  userId: number
   displayName: string
   role: Role
 }
@@ -11,7 +11,7 @@ export type Session = {
 export type Loot = { gold: number; provisions: number; thralls: number }
 
 export type Expedition = {
-  id: string
+  id: number
   name: string
   target: string
   status: 'PREPARATION' | 'SAILING' | 'COMPLETED' | 'CANCELLED'
@@ -27,9 +27,9 @@ export type Expedition = {
 }
 
 export type Crew = {
-  id: string
-  expeditionId: string
-  userId: string
+  id: number
+  expeditionId: number
+  userId: number
   userName: string
   expeditionRole: string
   participationStatus: 'PENDING' | 'CONFIRMED' | 'DECLINED'
@@ -37,10 +37,10 @@ export type Crew = {
   version: number
 }
 
-export type User = { id: string; displayName: string; systemRole: string }
+export type User = { id: number; displayName: string; systemRole: string }
 export type Requirement = { resource: string; quantity: number; available: number }
 export type FleetShip = {
-  id: string
+  id: number
   name: string
   typeName: string
   capacity: number
@@ -49,7 +49,7 @@ export type FleetShip = {
   requestStatus: string
 }
 export type Ship = {
-  id: string
+  id: number
   name: string
   typeCode: string
   typeName: string
@@ -60,7 +60,7 @@ export type Ship = {
   blessed: boolean
   version: number
   available: boolean
-  expeditionId?: string | null
+  expeditionId?: number | null
   expeditionName?: string | null
   requestStatus?: string | null
   requirements: Requirement[]
@@ -79,7 +79,7 @@ export type Audit = {
   actorRole: Role
   eventType: string
   aggregateType: string
-  aggregateId: string
+  aggregateId: number
   details: string
 }
 

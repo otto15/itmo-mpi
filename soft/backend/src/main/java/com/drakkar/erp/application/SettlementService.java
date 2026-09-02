@@ -14,7 +14,6 @@ import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
-import java.util.UUID;
 
 @Service
 public class SettlementService {
@@ -45,8 +44,6 @@ public class SettlementService {
             ApiModels.ProvisionSettlementRequest request
     ) {
         requireProvisioningKey(suppliedKey);
-        UUID settlementId = UUID.randomUUID();
-        UUID jarlId = UUID.randomUUID();
         String settlementName = request.settlementName().trim();
         String username = request.username().trim().toLowerCase(Locale.ROOT);
 
@@ -59,8 +56,14 @@ public class SettlementService {
 
         PasswordHasher.EncodedPassword password = passwordHasher.encode(request.password().toCharArray());
 
-        jdbc.update("insert into settlement(id, name) values (?, ?)", settlementId, settlementName);
-        jdbc.update("insert into app_user(id, display_name) values (?, ?)", jarlId, request.jarlDisplayName().trim());
+        Long settlementId = jdbc.queryForObject(
+                "insert into settlement(name) values (?) returning id",
+                Long.class,
+                settlementName);
+        Long jarlId = jdbc.queryForObject(
+                "insert into app_user(display_name) values (?) returning id",
+                Long.class,
+                request.jarlDisplayName().trim());
         jdbc.update("""
                 insert into user_account(user_id, username, password_salt, password_hash)
                 values (?, ?, ?, ?)

@@ -18,17 +18,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
-import java.util.UUID;
 
 @Service
 public class AuthService {
     public static final Duration SESSION_TTL = Duration.ofHours(8);
 
     private record Account(
-            UUID id,
+            Long id,
             String displayName,
             Role role,
-            UUID settlementId,
+            Long settlementId,
             byte[] salt,
             byte[] passwordHash
     ) {
@@ -54,10 +53,10 @@ public class AuthService {
                   join settlement st on st.id = sm.settlement_id
                  where lower(a.username) = lower(?) and a.enabled = true
                 """, rs -> rs.next() ? new Account(
-                rs.getObject("id", UUID.class),
+                rs.getLong("id"),
                 rs.getString("display_name"),
                 Role.valueOf(rs.getString("member_role")),
-                rs.getObject("settlement_id", UUID.class),
+                rs.getLong("settlement_id"),
                 rs.getBytes("password_salt"),
                 rs.getBytes("password_hash")) : null, request.username().trim());
 
@@ -90,10 +89,10 @@ public class AuthService {
                    and s.expires_at > now()
                    and a.enabled = true
                 """, rs -> rs.next() ? new AuthenticatedUser(
-                rs.getObject("id", UUID.class),
+                rs.getLong("id"),
                 rs.getString("display_name"),
                 Role.valueOf(rs.getString("member_role")),
-                rs.getObject("settlement_id", UUID.class),
+                rs.getLong("settlement_id"),
                 rs.getString("settlement_name")) : null, tokenHash(token));
         if (user == null) {
             throw new DomainException("SESSION_INVALID", "Сессия отсутствует или истекла", HttpStatus.UNAUTHORIZED);

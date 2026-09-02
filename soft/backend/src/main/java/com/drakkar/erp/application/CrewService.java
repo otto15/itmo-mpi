@@ -8,7 +8,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
-import java.util.UUID;
 
 @Service
 public class CrewService {
@@ -21,7 +20,7 @@ public class CrewService {
     }
 
     @Transactional
-    public UUID add(AuthenticatedUser actor, UUID expeditionId, ApiModels.AddCrewRequest request) {
+    public Long add(AuthenticatedUser actor, Long expeditionId, ApiModels.AddCrewRequest request) {
         Integer preparation = jdbc.query("""
                 select 1 from expedition
                  where id = ? and settlement_id = ? and status = 'PREPARATION'
@@ -56,18 +55,18 @@ public class CrewService {
                     "Житель уже задействован в другом походе");
         }
 
-        UUID assignmentId = UUID.randomUUID();
-        jdbc.update("""
-                insert into crew_assignment(id, expedition_id, user_id, expedition_role, participation_status)
-                values (?, ?, ?, ?, 'PENDING')
-                """, assignmentId, expeditionId, request.userId(), request.expeditionRole().trim());
+        Long assignmentId = jdbc.queryForObject("""
+                insert into crew_assignment(expedition_id, user_id, expedition_role, participation_status)
+                values (?, ?, ?, 'PENDING')
+                returning id
+                """, Long.class, expeditionId, request.userId(), request.expeditionRole().trim());
         audit.append(actor.settlementId(), actor.role(), "CREW_MEMBER_ASSIGNED", "EXPEDITION", expeditionId,
-                "{\"assignmentId\":\"" + assignmentId + "\"}");
+                "{\"assignmentId\":" + assignmentId + "}");
         return assignmentId;
     }
 
     @Transactional
-    public void decide(AuthenticatedUser actor, UUID assignmentId, ApiModels.CrewDecisionRequest request) {
+    public void decide(AuthenticatedUser actor, Long assignmentId, ApiModels.CrewDecisionRequest request) {
         String decision = request.decision().toUpperCase(Locale.ROOT);
         if (!decision.equals("CONFIRMED") && !decision.equals("DECLINED")) {
             throw DomainException.conflict("INVALID_DECISION", "Доступны только CONFIRMED и DECLINED");

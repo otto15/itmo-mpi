@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,7 +22,7 @@ public class DemoQueryService {
     );
 
     private record ExpeditionRow(
-            UUID id,
+            Long id,
             String name,
             String target,
             String status,
@@ -42,7 +41,7 @@ public class DemoQueryService {
     }
 
     public ApiModels.DemoState state(AuthenticatedUser actor) {
-        UUID settlementId = actor.settlementId();
+        Long settlementId = actor.settlementId();
         List<ApiModels.ExpeditionView> expeditions = expeditionRows(settlementId).stream()
                 .map(row -> toExpeditionView(settlementId, row))
                 .toList();
@@ -62,7 +61,7 @@ public class DemoQueryService {
             List<ApiModels.CrewView> ownCrew = crew.stream()
                     .filter(item -> item.userId().equals(actor.id()))
                     .toList();
-            Set<UUID> ownExpeditionIds = ownCrew.stream()
+            Set<Long> ownExpeditionIds = ownCrew.stream()
                     .map(ApiModels.CrewView::expeditionId)
                     .collect(Collectors.toSet());
             List<ApiModels.ExpeditionView> ownExpeditions = expeditions.stream()
@@ -76,7 +75,7 @@ public class DemoQueryService {
             List<ApiModels.ShipView> work = ships.stream()
                     .filter(item -> item.stage() < 4 || "IN_CONSTRUCTION".equals(item.requestStatus()))
                     .toList();
-            Set<UUID> expeditionIds = work.stream()
+            Set<Long> expeditionIds = work.stream()
                     .map(ApiModels.ShipView::expeditionId)
                     .filter(java.util.Objects::nonNull)
                     .collect(Collectors.toSet());
@@ -92,7 +91,7 @@ public class DemoQueryService {
         List<ApiModels.ShipView> awaitingBlessing = ships.stream()
                 .filter(item -> item.stage() == 3 && !item.blessed())
                 .toList();
-        Set<UUID> expeditionIds = awaitingBlessing.stream()
+        Set<Long> expeditionIds = awaitingBlessing.stream()
                 .map(ApiModels.ShipView::expeditionId)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
@@ -102,7 +101,7 @@ public class DemoQueryService {
                 actor.settlementName(), false);
     }
 
-    private List<ExpeditionRow> expeditionRows(UUID settlementId) {
+    private List<ExpeditionRow> expeditionRows(Long settlementId) {
         return jdbc.query("""
                 select id, name, target, status, planned_departure, required_capacity, version,
                        finalized_at is not null as immutable, loot_gold, loot_provisions, loot_thralls
@@ -110,7 +109,7 @@ public class DemoQueryService {
                  where settlement_id = ?
                  order by planned_departure desc
                 """, (rs, rowNum) -> new ExpeditionRow(
-                rs.getObject("id", UUID.class),
+                rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("target"),
                 rs.getString("status"),
@@ -123,7 +122,7 @@ public class DemoQueryService {
         ), settlementId);
     }
 
-    private ApiModels.ExpeditionView toExpeditionView(UUID settlementId, ExpeditionRow row) {
+    private ApiModels.ExpeditionView toExpeditionView(Long settlementId, ExpeditionRow row) {
         List<ApiModels.FleetShipView> fleet = jdbc.query("""
                 select s.id, s.name, st.name as type_name, st.capacity, s.stage,
                        coalesce(br.status, case when s.stage = 4 then 'READY' else 'IN_CONSTRUCTION' end) as request_status
@@ -134,7 +133,7 @@ public class DemoQueryService {
                  where es.expedition_id = ?
                  order by s.stage desc, s.name
                 """, (rs, rowNum) -> new ApiModels.FleetShipView(
-                rs.getObject("id", UUID.class),
+                rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("type_name"),
                 rs.getInt("capacity"),
@@ -151,7 +150,7 @@ public class DemoQueryService {
                 auditForExpedition(settlementId, row.id()), row.version(), row.immutable(), row.loot());
     }
 
-    private List<ApiModels.AuditView> auditForExpedition(UUID settlementId, UUID expeditionId) {
+    private List<ApiModels.AuditView> auditForExpedition(Long settlementId, Long expeditionId) {
         return jdbc.query("""
                 select distinct ae.id, ae.happened_at, ae.actor_role, ae.event_type,
                        ae.aggregate_type, ae.aggregate_id, ae.details::text
@@ -176,12 +175,12 @@ public class DemoQueryService {
                 rs.getString("actor_role"),
                 rs.getString("event_type"),
                 rs.getString("aggregate_type"),
-                rs.getObject("aggregate_id", UUID.class),
+                rs.getLong("aggregate_id"),
                 rs.getString("details")
         ), settlementId, expeditionId, expeditionId, expeditionId);
     }
 
-    private List<ApiModels.CrewView> crew(UUID settlementId) {
+    private List<ApiModels.CrewView> crew(Long settlementId) {
         return jdbc.query("""
                 select ca.id, ca.expedition_id, ca.user_id, u.display_name, ca.expedition_role,
                        ca.participation_status, ca.alive, ca.version
@@ -191,9 +190,9 @@ public class DemoQueryService {
                  where e.settlement_id = ? and ca.participation_status <> 'REMOVED'
                  order by ca.expedition_id, u.display_name
                 """, (rs, rowNum) -> new ApiModels.CrewView(
-                rs.getObject("id", UUID.class),
-                rs.getObject("expedition_id", UUID.class),
-                rs.getObject("user_id", UUID.class),
+                rs.getLong("id"),
+                rs.getLong("expedition_id"),
+                rs.getLong("user_id"),
                 rs.getString("display_name"),
                 rs.getString("expedition_role"),
                 rs.getString("participation_status"),
@@ -202,7 +201,7 @@ public class DemoQueryService {
         ), settlementId);
     }
 
-    private List<ApiModels.UserView> availableUsers(UUID settlementId) {
+    private List<ApiModels.UserView> availableUsers(Long settlementId) {
         return jdbc.query("""
                 select u.id, u.display_name, sm.member_role
                   from settlement_membership sm
@@ -218,11 +217,11 @@ public class DemoQueryService {
                    )
                  order by u.display_name
                 """, (rs, rowNum) -> new ApiModels.UserView(
-                rs.getObject("id", UUID.class), rs.getString("display_name"), rs.getString("member_role")
+                rs.getLong("id"), rs.getString("display_name"), rs.getString("member_role")
         ), settlementId);
     }
 
-    private List<ApiModels.ShipView> ships(UUID settlementId) {
+    private List<ApiModels.ShipView> ships(Long settlementId) {
         return jdbc.query("""
                 select s.id, s.name, s.ship_type_code, st.name as type_name, st.capacity,
                        s.stage, s.blessed, s.version,
@@ -240,7 +239,7 @@ public class DemoQueryService {
                  where s.settlement_id = ?
                  order by s.stage, s.name
                 """, (rs, rowNum) -> {
-            UUID id = rs.getObject("id", UUID.class);
+            Long id = rs.getLong("id");
             int stage = rs.getInt("stage");
             List<ApiModels.RequirementView> requirements = jdbc.query("""
                     select r.resource, r.quantity, coalesce(ws.quantity, 0) as available
@@ -256,7 +255,7 @@ public class DemoQueryService {
                     id, rs.getString("name"), rs.getString("ship_type_code"), rs.getString("type_name"),
                     rs.getInt("capacity"), stage, STAGE_NAMES.get(stage), stage * 25,
                     rs.getBoolean("blessed"), rs.getInt("version"), rs.getBoolean("available"),
-                    rs.getObject("expedition_id", UUID.class), rs.getString("expedition_name"),
+                    rs.getObject("expedition_id", Long.class), rs.getString("expedition_name"),
                     rs.getString("request_status"), requirements);
         }, settlementId);
     }
@@ -277,7 +276,7 @@ public class DemoQueryService {
         });
     }
 
-    private List<ApiModels.StockView> stock(UUID settlementId) {
+    private List<ApiModels.StockView> stock(Long settlementId) {
         return jdbc.query("""
                 select resource, quantity, version
                   from warehouse_stock where settlement_id = ? order by resource
@@ -286,7 +285,7 @@ public class DemoQueryService {
         ), settlementId);
     }
 
-    private List<ApiModels.AllocationView> allocations(UUID settlementId) {
+    private List<ApiModels.AllocationView> allocations(Long settlementId) {
         return jdbc.query("""
                 select recipient, category, gold, provisions, thralls
                   from wergild_allocation wa

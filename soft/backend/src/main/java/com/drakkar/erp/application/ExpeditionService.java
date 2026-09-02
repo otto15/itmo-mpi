@@ -12,14 +12,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 
 @Service
 public class ExpeditionService {
     private record ExpeditionRow(String status, int version, boolean immutable) {
     }
 
-    private record CrewRow(UUID id, String name) {
+    private record CrewRow(Long id, String name) {
     }
 
     private final JdbcTemplate jdbc;
@@ -34,7 +33,7 @@ public class ExpeditionService {
     @Transactional
     public void start(
             AuthenticatedUser actor,
-            UUID expeditionId,
+            Long expeditionId,
             ApiModels.StartExpeditionRequest request
     ) {
         ExpeditionRow expedition = findExpedition(actor.settlementId(), expeditionId, true);
@@ -101,7 +100,7 @@ public class ExpeditionService {
 
     public List<ApiModels.AllocationView> preview(
             AuthenticatedUser actor,
-            UUID expeditionId,
+            Long expeditionId,
             ApiModels.FinalizeRequest request
     ) {
         ExpeditionRow expedition = findExpedition(actor.settlementId(), expeditionId, false);
@@ -112,15 +111,15 @@ public class ExpeditionService {
     @Transactional
     public List<ApiModels.AllocationView> finalizeExpedition(
             AuthenticatedUser actor,
-            UUID expeditionId,
+            Long expeditionId,
             ApiModels.FinalizeRequest request
     ) {
         ExpeditionRow expedition = findExpedition(actor.settlementId(), expeditionId, true);
         validateCanFinalize(expedition, request.expectedVersion());
         List<WergildCalculator.Allocation> allocations = calculate(expeditionId, request);
 
-        Set<UUID> fallen = new HashSet<>(request.fallenAssignmentIds());
-        for (UUID assignmentId : fallen) {
+        Set<Long> fallen = new HashSet<>(request.fallenAssignmentIds());
+        for (Long assignmentId : fallen) {
             int marked = jdbc.update("""
                     update crew_assignment
                        set alive = false, version = version + 1
@@ -160,7 +159,7 @@ public class ExpeditionService {
         return toViews(allocations);
     }
 
-    private ExpeditionRow findExpedition(UUID settlementId, UUID expeditionId, boolean lock) {
+    private ExpeditionRow findExpedition(Long settlementId, Long expeditionId, boolean lock) {
         String suffix = lock ? " for update" : "";
         ExpeditionRow row = jdbc.query("""
                 select status, version, finalized_at is not null as immutable
@@ -186,7 +185,7 @@ public class ExpeditionService {
         }
     }
 
-    private List<WergildCalculator.Allocation> calculate(UUID expeditionId, ApiModels.FinalizeRequest request) {
+    private List<WergildCalculator.Allocation> calculate(Long expeditionId, ApiModels.FinalizeRequest request) {
         List<CrewRow> crew = jdbc.query("""
                 select ca.id, u.display_name
                   from crew_assignment ca
@@ -194,13 +193,13 @@ public class ExpeditionService {
                  where ca.expedition_id = ? and ca.participation_status = 'CONFIRMED'
                  order by u.display_name
                 """, (rs, rowNum) -> new CrewRow(
-                rs.getObject("id", UUID.class), rs.getString("display_name")), expeditionId);
-        Set<UUID> ids = crew.stream().map(CrewRow::id).collect(java.util.stream.Collectors.toSet());
+                rs.getLong("id"), rs.getString("display_name")), expeditionId);
+        Set<Long> ids = crew.stream().map(CrewRow::id).collect(java.util.stream.Collectors.toSet());
         if (!ids.containsAll(request.fallenAssignmentIds())) {
             throw DomainException.conflict("INVALID_FALLEN_LIST",
                     "Потери можно отмечать только среди подтверждённых участников");
         }
-        Set<UUID> fallen = new HashSet<>(request.fallenAssignmentIds());
+        Set<Long> fallen = new HashSet<>(request.fallenAssignmentIds());
         List<WergildCalculator.Claimant> claimants = crew.stream()
                 .map(member -> new WergildCalculator.Claimant(member.name(), !fallen.contains(member.id())))
                 .toList();
@@ -215,7 +214,7 @@ public class ExpeditionService {
         )).toList();
     }
 
-    private void addToWarehouse(UUID settlementId, String resource, int amount) {
+    private void addToWarehouse(Long settlementId, String resource, int amount) {
         jdbc.update("""
                 update warehouse_stock
                    set quantity = quantity + ?, version = version + 1

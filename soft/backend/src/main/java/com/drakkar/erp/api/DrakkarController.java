@@ -25,7 +25,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api")
@@ -92,19 +91,19 @@ public class DrakkarController {
     @PostMapping("/expeditions/{expeditionId}/crew")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiModels.MessageResponse addCrew(
-            @PathVariable UUID expeditionId,
+            @PathVariable Long expeditionId,
             @Valid @RequestBody ApiModels.AddCrewRequest request,
             HttpServletRequest servletRequest
     ) {
         AuthenticatedUser actor = current(servletRequest);
         RoleGuard.require(actor.role(), Role.JARL);
-        UUID assignmentId = crew.add(actor, expeditionId, request);
+        Long assignmentId = crew.add(actor, expeditionId, request);
         return new ApiModels.MessageResponse("CREW_MEMBER_ASSIGNED", assignmentId.toString());
     }
 
     @PostMapping("/crew/{assignmentId}/decision")
     public ApiModels.MessageResponse decide(
-            @PathVariable UUID assignmentId,
+            @PathVariable Long assignmentId,
             @Valid @RequestBody ApiModels.CrewDecisionRequest request,
             HttpServletRequest servletRequest
     ) {
@@ -116,7 +115,7 @@ public class DrakkarController {
 
     @PostMapping("/ships/{shipId}/complete-stage")
     public ApiModels.MessageResponse completeStage(
-            @PathVariable UUID shipId,
+            @PathVariable Long shipId,
             @Valid @RequestBody ApiModels.CompleteStageRequest request,
             HttpServletRequest servletRequest
     ) {
@@ -128,7 +127,7 @@ public class DrakkarController {
 
     @PostMapping("/expeditions/{expeditionId}/ships")
     public ApiModels.MessageResponse assignShip(
-            @PathVariable UUID expeditionId,
+            @PathVariable Long expeditionId,
             @Valid @RequestBody ApiModels.AssignShipRequest request,
             HttpServletRequest servletRequest
     ) {
@@ -141,8 +140,8 @@ public class DrakkarController {
     @DeleteMapping("/expeditions/{expeditionId}/ships/{shipId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeShip(
-            @PathVariable UUID expeditionId,
-            @PathVariable UUID shipId,
+            @PathVariable Long expeditionId,
+            @PathVariable Long shipId,
             HttpServletRequest servletRequest
     ) {
         AuthenticatedUser actor = current(servletRequest);
@@ -152,7 +151,7 @@ public class DrakkarController {
 
     @PostMapping("/expeditions/{expeditionId}/start")
     public ApiModels.MessageResponse startExpedition(
-            @PathVariable UUID expeditionId,
+            @PathVariable Long expeditionId,
             @Valid @RequestBody ApiModels.StartExpeditionRequest request,
             HttpServletRequest servletRequest
     ) {
@@ -165,19 +164,19 @@ public class DrakkarController {
     @PostMapping("/expeditions/{expeditionId}/ship-requests")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiModels.MessageResponse requestShip(
-            @PathVariable UUID expeditionId,
+            @PathVariable Long expeditionId,
             @Valid @RequestBody ApiModels.RequestShipRequest request,
             HttpServletRequest servletRequest
     ) {
         AuthenticatedUser actor = current(servletRequest);
         RoleGuard.require(actor.role(), Role.JARL);
-        UUID requestId = shipyard.requestShip(actor, expeditionId, request);
+        Long requestId = shipyard.requestShip(actor, expeditionId, request);
         return new ApiModels.MessageResponse("SHIP_BUILD_REQUESTED", requestId.toString());
     }
 
     @PostMapping("/ships/{shipId}/bless")
     public ApiModels.MessageResponse bless(
-            @PathVariable UUID shipId,
+            @PathVariable Long shipId,
             HttpServletRequest servletRequest
     ) {
         AuthenticatedUser actor = current(servletRequest);
@@ -188,7 +187,7 @@ public class DrakkarController {
 
     @PostMapping("/expeditions/{expeditionId}/finalization-preview")
     public List<ApiModels.AllocationView> preview(
-            @PathVariable UUID expeditionId,
+            @PathVariable Long expeditionId,
             @Valid @RequestBody ApiModels.FinalizeRequest request,
             HttpServletRequest servletRequest
     ) {
@@ -199,7 +198,7 @@ public class DrakkarController {
 
     @PostMapping("/expeditions/{expeditionId}/finalize")
     public List<ApiModels.AllocationView> finalizeExpedition(
-            @PathVariable UUID expeditionId,
+            @PathVariable Long expeditionId,
             @Valid @RequestBody ApiModels.FinalizeRequest request,
             HttpServletRequest servletRequest
     ) {
