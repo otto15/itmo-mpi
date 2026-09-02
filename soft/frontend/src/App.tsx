@@ -6,6 +6,7 @@ type Tab = 'overview' | 'expeditions' | 'crew' | 'shipyard' | 'resources' | 'res
 type Notice = { kind: 'ok' | 'error'; text: string } | null
 type Perform = <T>(work: () => Promise<T>, success: string, after?: (result: T) => void) => Promise<void>
 type ModuleProps = { state: DemoState; session: Session; busy: boolean; perform: Perform }
+type NavigationItem = { tab: Tab; icon: string; label: string }
 
 const roleNames: Record<Role, string> = {
   JARL: 'Ярл', WARRIOR: 'Воин', SHIPBUILDER: 'Кораблестроитель', PRIEST: 'Жрец'
@@ -14,6 +15,25 @@ const resourceNames: Record<string, string> = {
   WOOD: 'Дерево', CLOTH: 'Ткань', RESIN: 'Смола',
   GOLD: 'Золото', PROVISIONS: 'Провизия', THRALLS: 'Пленные'
 }
+const navigationByRole: Record<Role, NavigationItem[]> = {
+  JARL: [
+    { tab: 'overview', icon: '⌂', label: 'Обзор' },
+    { tab: 'expeditions', icon: '↗', label: 'Походы' },
+    { tab: 'crew', icon: '●', label: 'Команда' },
+    { tab: 'shipyard', icon: '◇', label: 'Верфь' },
+    { tab: 'resources', icon: '▦', label: 'Ресурсы' },
+    { tab: 'results', icon: '○', label: 'Итоги' },
+    { tab: 'history', icon: '≡', label: 'История' }
+  ],
+  WARRIOR: [{ tab: 'crew', icon: '●', label: 'Команда' }],
+  SHIPBUILDER: [
+    { tab: 'shipyard', icon: '◇', label: 'Верфь' },
+    { tab: 'resources', icon: '▦', label: 'Ресурсы' }
+  ],
+  PRIEST: [{ tab: 'shipyard', icon: '◇', label: 'Верфь' }]
+}
+
+function defaultTab(role: Role): Tab { return navigationByRole[role][0].tab }
 
 function App() {
   const [session, setSession] = useState<Session | null>(() => {
@@ -51,7 +71,7 @@ function App() {
       const next = await api<Session>('/api/auth/login', undefined, { username, password })
       localStorage.setItem('drakkar-session', JSON.stringify(next))
       setSession(next)
-      setTab('overview')
+      setTab(defaultTab(next.role))
       await loadState(next)
       setNotice({ kind: 'ok', text: `Вход выполнен: ${next.displayName}` })
     } catch (error) {
@@ -90,24 +110,22 @@ function App() {
 
   if (!session) return <LoginScreen busy={busy} onLogin={login} notice={notice} />
 
+  const roleNavigation = navigationByRole[session.role]
+  const activeNavigation = roleNavigation.find(item => item.tab === tab) ?? roleNavigation[0]
+  const activeTab = activeNavigation.tab
+
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">D</div><strong>Drakkar ERP</strong></div>
       <nav>
-        <NavItem active={tab === 'overview'} icon="⌂" label="Обзор" onClick={() => setTab('overview')} />
-        <NavItem active={tab === 'expeditions'} icon="↗" label="Походы" onClick={() => setTab('expeditions')} />
-        <NavItem active={tab === 'crew'} icon="●" label="Команда" onClick={() => setTab('crew')} />
-        <NavItem active={tab === 'shipyard'} icon="◇" label="Верфь" onClick={() => setTab('shipyard')} />
-        <NavItem active={tab === 'resources'} icon="▦" label="Ресурсы" onClick={() => setTab('resources')} />
-        <NavItem active={tab === 'results'} icon="○" label="Итоги" onClick={() => setTab('results')} />
-        <NavItem active={tab === 'history'} icon="≡" label="История" onClick={() => setTab('history')} />
+        {roleNavigation.map(item => <NavItem key={item.tab} active={activeTab === item.tab} icon={item.icon} label={item.label} onClick={() => setTab(item.tab)} />)}
       </nav>
       <button className="logout-button" disabled={busy} onClick={() => void logout()}>Выйти</button>
     </aside>
 
     <main>
       <header className="topbar">
-        <h1>{tabTitle(tab)}</h1>
+        <h1>{tabTitle(activeTab)}</h1>
         <div className="user-context">
           <div className="current-settlement"><small>Поселение</small><b>{state?.activeSettlementName ?? '—'}</b></div>
           <div className="current-user"><b>{session.displayName}</b><small>{roleNames[session.role]}</small></div>
@@ -115,13 +133,13 @@ function App() {
       </header>
       {notice && <div className={`notice ${notice.kind}`}><span>{notice.kind === 'ok' ? '✓' : '!'}</span>{notice.text}</div>}
       {!state ? <Loading /> : <div className="content">
-        {tab === 'overview' && <Overview state={state} session={session} busy={busy} perform={perform} />}
-        {tab === 'expeditions' && <ExpeditionsModule state={state} session={session} busy={busy} perform={perform} />}
-        {tab === 'crew' && <CrewModule state={state} session={session} busy={busy} perform={perform} />}
-        {tab === 'shipyard' && <ShipyardModule state={state} session={session} busy={busy} perform={perform} />}
-        {tab === 'resources' && <ResourcesModule state={state} />}
-        {tab === 'results' && <ResultsModule state={state} session={session} busy={busy} perform={perform} />}
-        {tab === 'history' && <HistoryModule state={state} />}
+        {activeTab === 'overview' && <Overview state={state} session={session} busy={busy} perform={perform} />}
+        {activeTab === 'expeditions' && <ExpeditionsModule state={state} session={session} busy={busy} perform={perform} />}
+        {activeTab === 'crew' && <CrewModule state={state} session={session} busy={busy} perform={perform} />}
+        {activeTab === 'shipyard' && <ShipyardModule state={state} session={session} busy={busy} perform={perform} />}
+        {activeTab === 'resources' && <ResourcesModule state={state} />}
+        {activeTab === 'results' && <ResultsModule state={state} session={session} busy={busy} perform={perform} />}
+        {activeTab === 'history' && <HistoryModule state={state} />}
       </div>}
     </main>
   </div>
