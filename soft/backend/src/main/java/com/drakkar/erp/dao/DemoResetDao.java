@@ -1,10 +1,11 @@
 package com.drakkar.erp.dao;
 
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 public class DemoResetDao {
@@ -16,9 +17,9 @@ public class DemoResetDao {
     private static final Long ASTRID = 110L;
     private static final Long SIGURD = 111L;
 
-    private final JdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate jdbc;
 
-    public DemoResetDao(JdbcTemplate jdbc) {
+    public DemoResetDao(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -75,8 +76,10 @@ public class DemoResetDao {
 
         jdbc.update("""
                 insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
-                values (?, ?, 'Северный ветер', 'DRAKKAR', 1, false)
-                """, buildingShip, settlementId);
+                values (:shipId, :settlementId, 'Северный ветер', 'DRAKKAR', 1, false)
+                """, Map.of(
+                "shipId", buildingShip,
+                "settlementId", settlementId));
         addReadyShip(seaWolf, settlementId, "Морской волк", "DRAKKAR");
         addReadyShip(seaSerpent, settlementId, "Морской змей", "DRAKKAR");
         addReadyShip(wolfFang, settlementId, "Волчий клык", "KNOERR");
@@ -85,9 +88,9 @@ public class DemoResetDao {
         addReadyShip(iceGull, settlementId, "Ледяная чайка", "KNOERR");
         jdbc.update("""
                 insert into ship_stage_requirement(ship_id, stage, resource, quantity)
-                select ?, stage, resource, quantity
+                select :shipId, stage, resource, quantity
                   from ship_type_requirement where ship_type_code = 'DRAKKAR'
-                """, buildingShip);
+                """, Map.of("shipId", buildingShip));
 
         addShipToExpedition(sailing, seaSerpent);
         addShipToExpedition(sailing, wolfFang);
@@ -100,8 +103,14 @@ public class DemoResetDao {
         jdbc.update("""
                 insert into ship_build_request(
                     id, settlement_id, expedition_id, ship_type_code, ship_id, requested_by, status, created_at
-                ) values (?, ?, ?, 'DRAKKAR', ?, ?, 'IN_CONSTRUCTION', now() - interval '4 days')
-                """, 501L, settlementId, preparation, buildingShip, 106L);
+                ) values (:requestId, :settlementId, :expeditionId, 'DRAKKAR', :shipId,
+                          :requestedBy, 'IN_CONSTRUCTION', now() - interval '4 days')
+                """, Map.of(
+                "requestId", 501L,
+                "settlementId", settlementId,
+                "expeditionId", preparation,
+                "shipId", buildingShip,
+                "requestedBy", 106L));
 
         addAudit(settlementId, "JARL", "EXPEDITION_FINALIZED", "EXPEDITION", completedFrisia, 1080,
                 "{\"summary\":\"Первый успешный поход сезона\"}");
@@ -130,27 +139,28 @@ public class DemoResetDao {
     }
 
     private void clearSettlement(Long settlementId) {
-        jdbc.update("delete from audit_event where settlement_id = ?", settlementId);
+        Map<String, Object> parameters = Map.of("settlementId", settlementId);
+        jdbc.update("delete from audit_event where settlement_id = :settlementId", parameters);
         jdbc.update("""
                 delete from wergild_allocation wa using expedition e
-                 where wa.expedition_id = e.id and e.settlement_id = ?
-                """, settlementId);
+                 where wa.expedition_id = e.id and e.settlement_id = :settlementId
+                """, parameters);
         jdbc.update("""
                 delete from crew_assignment ca using expedition e
-                 where ca.expedition_id = e.id and e.settlement_id = ?
-                """, settlementId);
-        jdbc.update("delete from ship_build_request where settlement_id = ?", settlementId);
+                 where ca.expedition_id = e.id and e.settlement_id = :settlementId
+                """, parameters);
+        jdbc.update("delete from ship_build_request where settlement_id = :settlementId", parameters);
         jdbc.update("""
                 delete from expedition_ship es using expedition e
-                 where es.expedition_id = e.id and e.settlement_id = ?
-                """, settlementId);
+                 where es.expedition_id = e.id and e.settlement_id = :settlementId
+                """, parameters);
         jdbc.update("""
                 delete from ship_stage_requirement sr using ship s
-                 where sr.ship_id = s.id and s.settlement_id = ?
-                """, settlementId);
-        jdbc.update("delete from ship where settlement_id = ?", settlementId);
-        jdbc.update("delete from expedition where settlement_id = ?", settlementId);
-        jdbc.update("delete from warehouse_stock where settlement_id = ?", settlementId);
+                 where sr.ship_id = s.id and s.settlement_id = :settlementId
+                """, parameters);
+        jdbc.update("delete from ship where settlement_id = :settlementId", parameters);
+        jdbc.update("delete from expedition where settlement_id = :settlementId", parameters);
+        jdbc.update("delete from warehouse_stock where settlement_id = :settlementId", parameters);
     }
 
     private void addExpedition(
@@ -163,8 +173,14 @@ public class DemoResetDao {
     ) {
         jdbc.update("""
                 insert into expedition(id, settlement_id, name, target, status, planned_departure)
-                values (?, ?, ?, ?, ?, ?)
-                """, id, settlementId, name, target, status, departure);
+                values (:id, :settlementId, :name, :target, :status, :departure)
+                """, Map.of(
+                "id", id,
+                "settlementId", settlementId,
+                "name", name,
+                "target", target,
+                "status", status,
+                "departure", departure));
     }
 
     private void addCompletedExpedition(
@@ -183,37 +199,60 @@ public class DemoResetDao {
                     id, settlement_id, name, target, status, planned_departure,
                     version, finalized_at, loot_gold, loot_provisions, loot_thralls
                 )
-                values (?, ?, ?, ?, 'COMPLETED', ?, 1,
-                        now() - (? * interval '1 day'), ?, ?, ?)
-                """, id, settlementId, name, target, departure,
-                finalizedDaysAgo, gold, provisions, thralls);
+                values (:id, :settlementId, :name, :target, 'COMPLETED', :departure, 1,
+                        now() - (:finalizedDaysAgo * interval '1 day'), :gold, :provisions, :thralls)
+                """, Map.of(
+                "id", id,
+                "settlementId", settlementId,
+                "name", name,
+                "target", target,
+                "departure", departure,
+                "finalizedDaysAgo", finalizedDaysAgo,
+                "gold", gold,
+                "provisions", provisions,
+                "thralls", thralls));
     }
 
     private void addCrew(Long id, Long expeditionId, Long userId, String role, String status) {
         jdbc.update("""
                 insert into crew_assignment(id, expedition_id, user_id, expedition_role, participation_status)
-                values (?, ?, ?, ?, ?)
-                """, id, expeditionId, userId, role, status);
+                values (:id, :expeditionId, :userId, :role, :status)
+                """, Map.of(
+                "id", id,
+                "expeditionId", expeditionId,
+                "userId", userId,
+                "role", role,
+                "status", status));
     }
 
     private void addStock(Long settlementId, Stock stock) {
         jdbc.update("""
                 insert into warehouse_stock(settlement_id, resource, quantity)
-                values (?, ?, ?)
-                """, settlementId, stock.resource(), stock.quantity());
+                values (:settlementId, :resource, :quantity)
+                """, Map.of(
+                "settlementId", settlementId,
+                "resource", stock.resource(),
+                "quantity", stock.quantity()));
     }
 
     private void addReadyShip(Long shipId, Long settlementId, String name, String typeCode) {
         jdbc.update("""
                 insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
-                values (?, ?, ?, ?, 4, true)
-                """, shipId, settlementId, name, typeCode);
+                values (:shipId, :settlementId, :name, :typeCode, 4, true)
+                """, Map.of(
+                "shipId", shipId,
+                "settlementId", settlementId,
+                "name", name,
+                "typeCode", typeCode));
     }
 
     private void addShipToExpedition(Long expeditionId, Long shipId) {
         jdbc.update("""
-                insert into expedition_ship(expedition_id, ship_id) values (?, ?)
-                """, expeditionId, shipId);
+                insert into expedition_ship(expedition_id, ship_id)
+                values (:expeditionId, :shipId)
+                """, Map.of(
+                "expeditionId", expeditionId,
+                "shipId", shipId));
     }
 
     private void addAudit(
@@ -230,8 +269,16 @@ public class DemoResetDao {
                     settlement_id, happened_at, actor_role, event_type,
                     aggregate_type, aggregate_id, details
                 )
-                values (?, now() - (? * interval '1 hour'), ?, ?, ?, ?, cast(? as jsonb))
-                """, settlementId, hoursAgo, actorRole, eventType, aggregateType, aggregateId, details);
+                values (:settlementId, now() - (:hoursAgo * interval '1 hour'), :actorRole,
+                        :eventType, :aggregateType, :aggregateId, cast(:details as jsonb))
+                """, Map.of(
+                "settlementId", settlementId,
+                "hoursAgo", hoursAgo,
+                "actorRole", actorRole,
+                "eventType", eventType,
+                "aggregateType", aggregateType,
+                "aggregateId", aggregateId,
+                "details", details));
     }
 
     private record Stock(String resource, int quantity) {
