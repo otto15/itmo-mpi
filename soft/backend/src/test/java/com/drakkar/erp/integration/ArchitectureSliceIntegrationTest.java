@@ -37,7 +37,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ArchitectureSliceIntegrationTest {
     private static final UUID PREPARATION_ASSIGNMENT = UUID.fromString("00000000-0000-0000-0000-000000000301");
     private static final UUID HALVDAN = UUID.fromString("00000000-0000-0000-0000-000000000104");
+    private static final UUID BJORN = UUID.fromString("00000000-0000-0000-0000-000000000101");
     private static final UUID SAILING_EXPEDITION = UUID.fromString("00000000-0000-0000-0000-000000000201");
+    private static final UUID PREPARATION_EXPEDITION = UUID.fromString("00000000-0000-0000-0000-000000000202");
+    private static final UUID READY_PREPARATION_EXPEDITION = UUID.fromString("00000000-0000-0000-0000-000000000207");
     private static final UUID FALLEN_ASSIGNMENT = UUID.fromString("00000000-0000-0000-0000-000000000312");
     private static final UUID SHIP = UUID.fromString("00000000-0000-0000-0000-000000000401");
 
@@ -207,14 +210,13 @@ class ArchitectureSliceIntegrationTest {
     void jarlAssignsAvailableWarriorOnlyOnceAndWritesAudit() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
         UUID thorstein = UUID.fromString("00000000-0000-0000-0000-000000000105");
-        UUID preparationExpedition = UUID.fromString("00000000-0000-0000-0000-000000000202");
         var request = new ApiModels.AddCrewRequest(thorstein, "разведчик");
         int auditBefore = jdbc.queryForObject("""
                 select count(*) from audit_event
                  where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID);
 
-        UUID assignmentId = crew.add(jarl, preparationExpedition, request);
+        UUID assignmentId = crew.add(jarl, PREPARATION_EXPEDITION, request);
 
         assertThat(jdbc.queryForObject(
                 "select participation_status from crew_assignment where id = ?",
@@ -224,13 +226,47 @@ class ArchitectureSliceIntegrationTest {
                  where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(auditBefore + 1);
 
-        assertThatThrownBy(() -> crew.add(jarl, preparationExpedition, request))
+        assertThatThrownBy(() -> crew.add(jarl, PREPARATION_EXPEDITION, request))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("уже задействован в другом походе");
         assertThat(jdbc.queryForObject("""
                 select count(*) from crew_assignment
                  where user_id = ? and participation_status <> 'REMOVED'
                 """, Integer.class, thorstein)).isEqualTo(1);
+    }
+
+    @Test
+    void warriorInSailingExpeditionIsVisibleInCrewButUnavailableForAnotherExpedition() throws Exception {
+        ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026"));
+
+        mockMvc.perform(get("/api/demo/state")
+                        .header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.crew[?(@.expeditionId == '" + SAILING_EXPEDITION
+                        + "' && @.userId == '" + BJORN
+                        + "' && @.participationStatus == 'CONFIRMED')]").isNotEmpty())
+                .andExpect(jsonPath("$.availableUsers[?(@.id == '" + BJORN + "')]").isEmpty());
+
+        assertThatThrownBy(() -> crew.add(
+                login("ragnar", "raven-2026"),
+                PREPARATION_EXPEDITION,
+                new ApiModels.AddCrewRequest(BJORN, "разведчик")))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("уже задействован в другом походе");
+    }
+
+    @Test
+    void declinedWarriorBecomesAvailableForAnotherExpedition() {
+        AuthenticatedUser warrior = login("halvdan", "shield-2026");
+        AuthenticatedUser jarl = login("ragnar", "raven-2026");
+
+        crew.decide(warrior, PREPARATION_ASSIGNMENT, new ApiModels.CrewDecisionRequest("DECLINED", 0));
+        UUID assignmentId = crew.add(jarl, READY_PREPARATION_EXPEDITION,
+                new ApiModels.AddCrewRequest(HALVDAN, "разведчик"));
+
+        assertThat(jdbc.queryForObject(
+                "select expedition_id from crew_assignment where id = ?",
+                UUID.class, assignmentId)).isEqualTo(READY_PREPARATION_EXPEDITION);
     }
 
     @Test

@@ -213,7 +213,7 @@ public class DemoQueryService {
                        join expedition e on e.id = ca.expedition_id
                         where ca.user_id = u.id
                           and e.settlement_id = sm.settlement_id
-                          and ca.participation_status <> 'REMOVED'
+                          and ca.participation_status in ('PENDING', 'CONFIRMED')
                           and e.status in ('PREPARATION', 'SAILING')
                    )
                  order by u.display_name

@@ -47,7 +47,7 @@ public class CrewService {
                 join expedition e on e.id = ca.expedition_id
                 where ca.user_id = ?
                   and e.settlement_id = ?
-                  and ca.participation_status <> 'REMOVED'
+                  and ca.participation_status in ('PENDING', 'CONFIRMED')
                   and e.status in ('PREPARATION', 'SAILING')
                 limit 1
                 """, rs -> rs.next() ? 1 : null, request.userId(), actor.settlementId());

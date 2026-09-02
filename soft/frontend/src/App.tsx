@@ -201,6 +201,7 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
   const plannedShortage = Math.max(0, expedition.requiredCapacity - expedition.plannedCapacity)
   const canManage = session.role === 'JARL' && expedition.status === 'PREPARATION'
   const expeditionCrew = state.crew.filter(member => member.expeditionId === expedition.id)
+  const crewOnBoard = expeditionCrew.filter(member => member.participationStatus === 'CONFIRMED' || (expedition.status === 'PREPARATION' && member.participationStatus === 'PENDING'))
   const confirmedCrew = expeditionCrew.filter(member => member.participationStatus === 'CONFIRMED').length
   const pendingCrew = expeditionCrew.filter(member => member.participationStatus === 'PENDING').length
   const allShipsReady = expedition.fleet.length > 0 && expedition.fleet.every(ship => ship.ready)
@@ -220,6 +221,8 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
       {expedition.fleet.map(ship => <div key={ship.id}><span className={ship.ready ? 'ship-state ready' : 'ship-state building'}>{ship.ready ? '✓' : ship.stage}</span><span><b>{ship.name}</b><small>{ship.typeName} · {ship.capacity} мест</small></span><Status value={ship.ready ? 'READY' : 'IN_CONSTRUCTION'} />{canManage && <button className="remove-ship" aria-label={`Убрать корабль ${ship.name}`} title="Убрать из похода" disabled={busy} onClick={() => void perform(() => apiDelete(`/api/expeditions/${expedition.id}/ships/${ship.id}`, session.token), 'Корабль убран из похода')}>×</button>}</div>)}
       {!expedition.fleet.length && <Empty title="Корабли не назначены" />}
     </div>
+    <div className="crew-section-heading"><h3>{expedition.status === 'SAILING' ? `Команда в походе · ${crewOnBoard.length}` : `Команда похода · ${crewOnBoard.length}`}</h3>{expedition.status === 'SAILING' && <small>Участники в плавании недоступны для назначения в другие походы</small>}</div>
+    <CrewRoster members={crewOnBoard} away={expedition.status === 'SAILING'} />
     {canManage && <div className="launch-box">
       <div><b>Готовность к выходу</b><small>Поход начнётся, когда выполнены все условия</small></div>
       <ul>
@@ -254,14 +257,21 @@ function CrewModule({ state, session, busy, perform }: ModuleProps) {
   const [userId, setUserId] = useState(state.availableUsers[0]?.id ?? '')
   const [expeditionRole, setExpeditionRole] = useState('разведчик')
   const pendingMine = state.crew.find(item => item.userId === session.userId && item.participationStatus === 'PENDING')
+  const occupied = state.crew.filter(member => {
+    const memberExpedition = state.expeditions.find(item => item.id === member.expeditionId)
+    return (member.participationStatus === 'PENDING' || member.participationStatus === 'CONFIRMED') && (memberExpedition?.status === 'PREPARATION' || memberExpedition?.status === 'SAILING')
+  })
+  useEffect(() => {
+    if (!state.availableUsers.some(user => user.id === userId)) setUserId(state.availableUsers[0]?.id ?? '')
+  }, [state.availableUsers, userId])
   return <section className="module-grid">
     <div className="panel wide">
       <div className="module-title-row"><PanelHead overline="Состав" title={expedition?.name ?? 'Поход не найден'} />{candidates.length > 1 && <select value={expedition?.id} onChange={event => setExpeditionId(event.target.value)}>{candidates.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div>
       <div className="table"><div className="tr th"><span>Участник</span><span>Роль</span><span>Статус</span></div>{members.map(member => <div className="tr" key={member.id}><span><b>{member.userName}</b></span><span>{member.expeditionRole}</span><span><Status value={member.participationStatus} /></span></div>)}</div>
-      {session.role === 'JARL' && expedition?.status === 'PREPARATION' && <div className="inline-form"><select value={userId} onChange={event => setUserId(event.target.value)}>{state.availableUsers.map(user => <option key={user.id} value={user.id}>{user.displayName}</option>)}</select><input value={expeditionRole} onChange={event => setExpeditionRole(event.target.value)} /><button className="primary" disabled={busy || !userId} onClick={() => void perform(() => api(`/api/expeditions/${expedition.id}/crew`, session.token, { userId, expeditionRole }), 'Участник добавлен')}>Добавить</button></div>}
+      {session.role === 'JARL' && expedition?.status === 'PREPARATION' && <>{state.availableUsers.length ? <div className="inline-form"><select aria-label="Свободный участник" value={userId} onChange={event => setUserId(event.target.value)}>{state.availableUsers.map(user => <option key={user.id} value={user.id}>{user.displayName}</option>)}</select><input aria-label="Роль в походе" value={expeditionRole} onChange={event => setExpeditionRole(event.target.value)} /><button className="primary" disabled={busy || !userId} onClick={() => void perform(() => api(`/api/expeditions/${expedition.id}/crew`, session.token, { userId, expeditionRole }), 'Участник добавлен')}>Добавить</button></div> : <Empty title="Свободных жителей нет" text="Участники подготовительных и текущих походов уже заняты" />}<small className="availability-hint">Для назначения показаны только свободные жители поселения.</small></>}
     </div>
-    <div className="panel side-panel"><PanelHead overline="Участие в походе" title="Ответ воина" />
-      {session.role !== 'WARRIOR' ? <RolePrompt role="WARRIOR" /> : pendingMine ? <><div className="assignment"><span>Назначение</span><b>{pendingMine.expeditionRole}</b></div><div className="button-stack"><button className="primary" disabled={busy} onClick={() => void perform(() => api(`/api/crew/${pendingMine.id}/decision`, session.token, { decision: 'CONFIRMED', expectedVersion: pendingMine.version }), 'Участие подтверждено')}>Подтвердить</button><button className="secondary danger" disabled={busy} onClick={() => void perform(() => api(`/api/crew/${pendingMine.id}/decision`, session.token, { decision: 'DECLINED', expectedVersion: pendingMine.version }), 'Отказ зафиксирован')}>Отказаться</button></div></> : <Empty title="Нет ожидающих назначений" />}
+    <div className="panel side-panel"><PanelHead overline={session.role === 'JARL' ? 'Доступность команды' : 'Участие в походе'} title={session.role === 'JARL' ? 'Заняты сейчас' : 'Ответ воина'} />
+      {session.role === 'JARL' ? occupied.length ? <div className="occupied-list">{occupied.map(member => { const active = state.expeditions.find(item => item.id === member.expeditionId); return <div key={member.id}><span><b>{member.userName}</b><small>{active?.name}</small></span><Status value={active?.status ?? member.participationStatus} /></div> })}</div> : <Empty title="Все жители свободны" /> : session.role !== 'WARRIOR' ? <RolePrompt role="WARRIOR" /> : pendingMine ? <><div className="assignment"><span>Назначение</span><b>{pendingMine.expeditionRole}</b></div><div className="button-stack"><button className="primary" disabled={busy} onClick={() => void perform(() => api(`/api/crew/${pendingMine.id}/decision`, session.token, { decision: 'CONFIRMED', expectedVersion: pendingMine.version }), 'Участие подтверждено')}>Подтвердить</button><button className="secondary danger" disabled={busy} onClick={() => void perform(() => api(`/api/crew/${pendingMine.id}/decision`, session.token, { decision: 'DECLINED', expectedVersion: pendingMine.version }), 'Отказ зафиксирован')}>Отказаться</button></div></> : <Empty title="Нет ожидающих назначений" />}
     </div>
   </section>
 }
@@ -295,7 +305,7 @@ function ResultsModule({ state, session, busy, perform }: ModuleProps) {
   const sailing = state.expeditions.filter(item => item.status === 'SAILING')
   const [selectedId, setSelectedId] = useState(sailing[0]?.id ?? '')
   const expedition = sailing.find(item => item.id === selectedId) ?? sailing[0]
-  const crew = state.crew.filter(item => item.expeditionId === expedition?.id)
+  const crew = state.crew.filter(item => item.expeditionId === expedition?.id && item.participationStatus === 'CONFIRMED')
   const [loot, setLoot] = useState<Loot>({ gold: 100, provisions: 50, thralls: 10 })
   const [fallen, setFallen] = useState<string[]>([])
   const [preview, setPreview] = useState<Allocation[]>([])
@@ -315,15 +325,22 @@ function HistoryModule({ state }: { state: DemoState }) {
   const completed = state.expeditions.filter(item => item.status === 'COMPLETED')
   const [selectedId, setSelectedId] = useState(completed[0]?.id ?? '')
   const selected = completed.find(item => item.id === selectedId) ?? completed[0]
+  const selectedCrew = state.crew.filter(item => item.expeditionId === selected?.id && item.participationStatus === 'CONFIRMED')
   if (!completed.length) return <section className="panel"><Empty title="Завершённых походов пока нет" /></section>
   return <section className="list-detail">
     <div className="panel compact-list-panel"><PanelHead overline="Архив" title={`Завершённые · ${completed.length}`} /><ExpeditionList expeditions={completed} selectedId={selected?.id} onSelect={setSelectedId} /></div>
     <div className="panel history-card">{selected && <><div className="detail-heading"><div><span>Завершённый поход</span><h2>{selected.name}</h2><p>{selected.target} · {dateOf(selected.plannedDeparture)}</p></div><Status value={selected.status} /></div>
       <div className="history-summary"><div><span>Золото</span><b>{selected.loot?.gold ?? 0}</b></div><div><span>Провизия</span><b>{selected.loot?.provisions ?? 0}</b></div><div><span>Пленные</span><b>{selected.loot?.thralls ?? 0}</b></div><div><span>Корабли</span><b>{selected.fleet.length}</b></div></div>
       <h3>Флот</h3><div className="fleet-chips">{selected.fleet.map(ship => <span key={ship.id}>{ship.name}<small>{ship.typeName} · {ship.capacity} мест</small></span>)}</div>
+      <h3>Команда</h3><CrewRoster members={selectedCrew} completed />
       <AuditTimeline events={selected.audit} />
     </>}</div>
   </section>
+}
+
+function CrewRoster({ members, away = false, completed = false }: { members: Crew[]; away?: boolean; completed?: boolean }) {
+  if (!members.length) return <Empty title="Участники не назначены" />
+  return <div className="crew-roster">{members.map(member => <div key={member.id}><span className="crew-avatar">{member.userName.slice(0, 1)}</span><span><b>{member.userName}</b><small>{member.expeditionRole}</small></span>{completed ? <b className={member.alive ? 'crew-safe' : 'crew-fallen'}>{member.alive ? 'Вернулся' : 'Погиб'}</b> : away ? <b className="crew-away">В походе</b> : <Status value={member.participationStatus} />}</div>)}</div>
 }
 
 function AuditTimeline({ events }: { events: Expedition['audit'] }) {
