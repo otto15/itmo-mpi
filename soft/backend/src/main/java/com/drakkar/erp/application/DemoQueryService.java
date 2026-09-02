@@ -27,7 +27,7 @@ public class DemoQueryService {
             String target,
             String status,
             LocalDate plannedDeparture,
-            int requiredCapacity,
+            int crewSize,
             int version,
             boolean immutable,
             ApiModels.LootRequest loot
@@ -103,18 +103,23 @@ public class DemoQueryService {
 
     private List<ExpeditionRow> expeditionRows(Long settlementId) {
         return jdbc.query("""
-                select id, name, target, status, planned_departure, required_capacity, version,
+                select e.id, e.name, e.target, e.status, e.planned_departure,
+                       (select count(*)::integer
+                          from crew_assignment ca
+                         where ca.expedition_id = e.id
+                           and ca.participation_status in ('PENDING', 'CONFIRMED')) as crew_size,
+                       e.version,
                        finalized_at is not null as immutable, loot_gold, loot_provisions, loot_thralls
-                  from expedition
-                 where settlement_id = ?
-                 order by planned_departure desc
+                  from expedition e
+                 where e.settlement_id = ?
+                 order by e.planned_departure desc
                 """, (rs, rowNum) -> new ExpeditionRow(
                 rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("target"),
                 rs.getString("status"),
                 rs.getObject("planned_departure", LocalDate.class),
-                rs.getInt("required_capacity"),
+                rs.getInt("crew_size"),
                 rs.getInt("version"),
                 rs.getBoolean("immutable"),
                 rs.getObject("loot_gold") == null ? null : new ApiModels.LootRequest(
@@ -146,7 +151,7 @@ public class DemoQueryService {
         int plannedCapacity = fleet.stream().mapToInt(ApiModels.FleetShipView::capacity).sum();
         return new ApiModels.ExpeditionView(
                 row.id(), row.name(), row.target(), row.status(), row.plannedDeparture(),
-                row.requiredCapacity(), readyCapacity, plannedCapacity, fleet,
+                row.crewSize(), readyCapacity, plannedCapacity, fleet,
                 auditForExpedition(settlementId, row.id()), row.version(), row.immutable(), row.loot());
     }
 

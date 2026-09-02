@@ -104,14 +104,14 @@ class ArchitectureSliceIntegrationTest {
     void demoFixtureContainsSeveralExpeditionsAndHistoryFromEveryRole() {
         assertThat(jdbc.queryForObject("""
                 select count(*) from expedition where settlement_id = ?
-                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(6);
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(7);
         assertThat(jdbc.queryForObject("""
                 select count(*) from expedition
                  where settlement_id = ? and status = 'COMPLETED'
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(2);
         assertThat(jdbc.queryForObject("""
                 select count(*) from audit_event where settlement_id = ?
-                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(11);
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(12);
         assertThat(jdbc.queryForObject("""
                 select count(distinct actor_role) from audit_event where settlement_id = ?
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(4);
@@ -166,14 +166,21 @@ class ArchitectureSliceIntegrationTest {
     }
 
     @Test
-    void expeditionFleetContainsSeveralShipsAndCapacityIsDerivedFromTheirTypes() throws Exception {
+    void fleetCapacityComesFromShipTypesAndSeatDemandComesFromInvitedCrew() throws Exception {
         ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026"));
 
         mockMvc.perform(get("/api/demo/state")
                         .header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.expeditions[?(@.id == 201)].fleet.length()").value(2))
-                .andExpect(jsonPath("$.expeditions[?(@.id == 201)].readyCapacity").value(60));
+                .andExpect(jsonPath("$.expeditions[?(@.id == 201)].readyCapacity").value(60))
+                .andExpect(jsonPath("$.expeditions[?(@.id == 201)].crewSize").value(3));
+
+        assertThat(jdbc.queryForObject("""
+                select count(*) from information_schema.columns
+                 where table_schema = 'public' and table_name = 'expedition'
+                   and column_name = 'required_capacity'
+                """, Integer.class)).isZero();
     }
 
     @Test
@@ -381,7 +388,7 @@ class ArchitectureSliceIntegrationTest {
                         .header("Authorization", "Bearer " + kattegatLogin.token()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.activeSettlementName").value("Каттегат"))
-                .andExpect(jsonPath("$.expeditions.length()").value(6));
+                .andExpect(jsonPath("$.expeditions.length()").value(7));
     }
 
     @Test
@@ -399,9 +406,17 @@ class ArchitectureSliceIntegrationTest {
     }
 
     @Test
-    void jarlRequestsShipFromCatalogAndRecipeIsSnapshottedForTheExpedition() {
+    void jarlRequestsShipWhenInvitedCrewHasNoPlannedSeats() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
-        Long preparation = 202L;
+        Long preparation = 208L;
+
+        assertThat(jdbc.queryForObject("""
+                select count(*) from crew_assignment
+                 where expedition_id = ? and participation_status in ('PENDING', 'CONFIRMED')
+                """, Integer.class, preparation)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from expedition_ship where expedition_id = ?",
+                Integer.class, preparation)).isZero();
 
         Long requestId = shipyard.requestShip(
                 jarl,
@@ -419,6 +434,13 @@ class ArchitectureSliceIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "select count(*) from audit_event where aggregate_id = ? and event_type = 'SHIP_BUILD_REQUESTED'",
                 Integer.class, preparation)).isEqualTo(1);
+
+        assertThatThrownBy(() -> shipyard.requestShip(
+                jarl,
+                preparation,
+                new ApiModels.RequestShipRequest("Скат II", "KNOERR")))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("Плановая вместимость флота уже набрана");
     }
 
     @Test

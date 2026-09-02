@@ -17,6 +17,7 @@ public class DemoResetService {
     private static final Long FLOKI = 103L;
     private static final Long ULF = 109L;
     private static final Long ASTRID = 110L;
+    private static final Long SIGURD = 111L;
 
     private final JdbcTemplate jdbc;
 
@@ -68,6 +69,7 @@ public class DemoResetService {
         Long completedMan = 204L;
         Long sailingOrkney = 206L;
         Long readyPreparation = 207L;
+        Long faroePreparation = 208L;
         Long buildingShip = 401L;
         Long seaWolf = 402L;
         Long seaSerpent = 403L;
@@ -77,31 +79,36 @@ public class DemoResetService {
         Long iceGull = 408L;
 
         jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
-                values (?, ?, ?, ?, 'SAILING', ?, 55)
+                insert into expedition(id, settlement_id, name, target, status, planned_departure)
+                values (?, ?, ?, ?, 'SAILING', ?)
                 """, sailing, settlementId, "Поход к берегам Уэссекса", "Аббатство и торговый порт",
                 LocalDate.of(2026, 9, 14));
         jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
-                values (?, ?, ?, ?, 'PREPARATION', ?, 70)
+                insert into expedition(id, settlement_id, name, target, status, planned_departure)
+                values (?, ?, ?, ?, 'PREPARATION', ?)
                 """, preparation, settlementId, "Экспедиция в Нортумбрию", "Монастырь Линдисфарн",
                 LocalDate.of(2026, 10, 2));
         jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
-                values (?, ?, ?, ?, 'SAILING', ?, 40)
+                insert into expedition(id, settlement_id, name, target, status, planned_departure)
+                values (?, ?, ?, ?, 'SAILING', ?)
                 """, sailingOrkney, settlementId, "Поход к Оркнейским островам",
                 "Гавань на острове Мейнленд", LocalDate.of(2026, 9, 22));
         jdbc.update("""
-                insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
-                values (?, ?, ?, ?, 'PREPARATION', ?, 20)
+                insert into expedition(id, settlement_id, name, target, status, planned_departure)
+                values (?, ?, ?, ?, 'PREPARATION', ?)
                 """, readyPreparation, settlementId, "Поход к Шетландским островам",
                 "Поселение у пролива Брессей", LocalDate.of(2026, 10, 12));
+        jdbc.update("""
+                insert into expedition(id, settlement_id, name, target, status, planned_departure)
+                values (?, ?, ?, ?, 'PREPARATION', ?)
+                """, faroePreparation, settlementId, "Разведка Фарерских островов",
+                "Бухта Торсхавна", LocalDate.of(2026, 10, 20));
         addCompletedExpedition(completedFrisia, settlementId,
                 "Поход к берегам Фризии", "Торговая гавань Дорестада",
-                LocalDate.of(2026, 7, 18), 20, 80, 35, 6, 45);
+                LocalDate.of(2026, 7, 18), 80, 35, 6, 45);
         addCompletedExpedition(completedMan, settlementId,
                 "Поход на остров Мэн", "Крепость у Дугласа",
-                LocalDate.of(2026, 8, 9), 40, 120, 60, 12, 20);
+                LocalDate.of(2026, 8, 9), 120, 60, 12, 20);
 
         addCrew(301L, preparation, HALVDAN, "рулевой", "PENDING");
         addCrew(311L, sailing, BJORN, "херсир", "CONFIRMED");
@@ -111,6 +118,7 @@ public class DemoResetService {
         addCrew(322L, completedMan, BJORN, "херсир", "CONFIRMED");
         addCrew(323L, sailingOrkney, ULF, "рулевой", "CONFIRMED");
         addCrew(324L, readyPreparation, ASTRID, "херсир", "CONFIRMED");
+        addCrew(325L, faroePreparation, SIGURD, "разведчик", "PENDING");
 
         for (var stock : List.of(
                 new Stock("WOOD", 120), new Stock("CLOTH", 35), new Stock("RESIN", 22),
@@ -171,12 +179,15 @@ public class DemoResetService {
         addAudit(settlementId, "JARL", "CREW_MEMBER_ASSIGNED", "EXPEDITION", preparation, 12,
                 "{\"assignmentId\":301}");
         addAudit(settlementId, "JARL", "EXPEDITION_STARTED", "EXPEDITION", sailingOrkney, 144,
-                "{\"readyCapacity\":40,\"confirmedCrew\":1}");
+                "{\"readyCapacity\":40,\"crewSize\":1}");
         addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION", readyPreparation, 48,
                 "{\"target\":\"Поселение у пролива Брессей\"}");
         addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
                 324L, 24,
                 "{\"expedition\":\"Поход к Шетландским островам\"}");
+        addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION",
+                faroePreparation, 12,
+                "{\"target\":\"Бухта Торсхавна\",\"invitedCrew\":1}");
     }
 
     private void addCompletedExpedition(
@@ -185,7 +196,6 @@ public class DemoResetService {
             String name,
             String target,
             LocalDate departure,
-            int requiredCapacity,
             int gold,
             int provisions,
             int thralls,
@@ -193,12 +203,12 @@ public class DemoResetService {
     ) {
         jdbc.update("""
                 insert into expedition(
-                    id, settlement_id, name, target, status, planned_departure, required_capacity,
+                    id, settlement_id, name, target, status, planned_departure,
                     version, finalized_at, loot_gold, loot_provisions, loot_thralls
                 )
-                values (?, ?, ?, ?, 'COMPLETED', ?, ?, 1,
+                values (?, ?, ?, ?, 'COMPLETED', ?, 1,
                         now() - (? * interval '1 day'), ?, ?, ?)
-                """, id, settlementId, name, target, departure, requiredCapacity,
+                """, id, settlementId, name, target, departure,
                 finalizedDaysAgo, gold, provisions, thralls);
     }
 

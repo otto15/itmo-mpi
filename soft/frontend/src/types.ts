@@ -16,7 +16,7 @@ export type Expedition = {
   target: string
   status: 'PREPARATION' | 'SAILING' | 'COMPLETED' | 'CANCELLED'
   plannedDeparture: string
-  requiredCapacity: number
+  crewSize: number
   readyCapacity: number
   plannedCapacity: number
   fleet: FleetShip[]

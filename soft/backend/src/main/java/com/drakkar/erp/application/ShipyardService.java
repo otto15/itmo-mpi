@@ -155,13 +155,17 @@ public class ShipyardService {
     ) {
         requirePreparation(actor.settlementId(), expeditionId);
         Integer shortage = jdbc.queryForObject("""
-                select e.required_capacity - coalesce(sum(st.capacity), 0)::integer
+                select (select count(*)::integer
+                          from crew_assignment ca
+                         where ca.expedition_id = e.id
+                           and ca.participation_status in ('PENDING', 'CONFIRMED'))
+                       - coalesce((select sum(st.capacity)::integer
+                                    from expedition_ship es
+                                    join ship s on s.id = es.ship_id and s.settlement_id = e.settlement_id
+                                    join ship_type st on st.code = s.ship_type_code
+                                   where es.expedition_id = e.id), 0)
                   from expedition e
-                  left join expedition_ship es on es.expedition_id = e.id
-                  left join ship s on s.id = es.ship_id and s.settlement_id = e.settlement_id
-                  left join ship_type st on st.code = s.ship_type_code
                  where e.id = ? and e.settlement_id = ?
-                 group by e.required_capacity
                 """, Integer.class, expeditionId, actor.settlementId());
         if (shortage == null || shortage <= 0) {
             throw DomainException.conflict(

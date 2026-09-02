@@ -197,8 +197,9 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
   const [typeCode, setTypeCode] = useState(state.shipTypes[0]?.code ?? '')
   const [shipName, setShipName] = useState('Новый корабль')
   const selectedType = state.shipTypes.find(type => type.code === typeCode)
-  const readyShortage = Math.max(0, expedition.requiredCapacity - expedition.readyCapacity)
-  const plannedShortage = Math.max(0, expedition.requiredCapacity - expedition.plannedCapacity)
+  const readyShortage = Math.max(0, expedition.crewSize - expedition.readyCapacity)
+  const plannedShortage = Math.max(0, expedition.crewSize - expedition.plannedCapacity)
+  const capacityCoverage = expedition.crewSize === 0 ? 0 : Math.min(100, expedition.readyCapacity / expedition.crewSize * 100)
   const canManage = session.role === 'JARL' && expedition.status === 'PREPARATION'
   const expeditionCrew = state.crew.filter(member => member.expeditionId === expedition.id)
   const crewOnBoard = expeditionCrew.filter(member => member.participationStatus === 'CONFIRMED' || (expedition.status === 'PREPARATION' && member.participationStatus === 'PENDING'))
@@ -212,9 +213,9 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
       <Status value={expedition.status} />
     </div>
     <div className="capacity-block">
-      <div><span>Готовая вместимость</span><b>{expedition.readyCapacity} / {expedition.requiredCapacity}</b></div>
-      <div className="capacity-bar"><i style={{ width: `${Math.min(100, expedition.readyCapacity / expedition.requiredCapacity * 100)}%` }} /></div>
-      <small>{readyShortage ? `Не хватает ${readyShortage} мест. С учётом строящихся: ${expedition.plannedCapacity}.` : 'Готовых мест достаточно для выхода.'}</small>
+      <div><span>Места для приглашённой команды</span><b>{expedition.readyCapacity} мест · {expedition.crewSize} чел.</b></div>
+      <div className="capacity-bar"><i style={{ width: `${capacityCoverage}%` }} /></div>
+      <small>{expedition.crewSize === 0 ? 'Сначала пригласите участников похода.' : readyShortage ? `Не хватает ${readyShortage} мест. С учётом строящихся доступно ${expedition.plannedCapacity}.` : 'Готовых мест достаточно для всех приглашённых.'}</small>
     </div>
     <h3>Флот похода</h3>
     <div className="fleet-list">
@@ -226,7 +227,7 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
     {canManage && <div className="launch-box">
       <div><b>Готовность к выходу</b><small>Поход начнётся, когда выполнены все условия</small></div>
       <ul>
-        <li className={readyShortage === 0 ? 'ready' : ''}><span>{readyShortage === 0 ? '✓' : '·'}</span>Вместимость флота {expedition.readyCapacity} / {expedition.requiredCapacity}</li>
+        <li className={expedition.crewSize > 0 && readyShortage === 0 ? 'ready' : ''}><span>{expedition.crewSize > 0 && readyShortage === 0 ? '✓' : '·'}</span>Мест: {expedition.readyCapacity} для {expedition.crewSize} приглашённых</li>
         <li className={allShipsReady ? 'ready' : ''}><span>{allShipsReady ? '✓' : '·'}</span>{allShipsReady ? 'Все корабли готовы' : 'Есть недостроенные корабли'}</li>
         <li className={confirmedCrew > 0 && pendingCrew === 0 ? 'ready' : ''}><span>{confirmedCrew > 0 && pendingCrew === 0 ? '✓' : '·'}</span>{confirmedCrew ? `Подтверждено участников: ${confirmedCrew}` : 'Нет подтверждённых участников'}{pendingCrew ? ` · ожидается ответ: ${pendingCrew}` : ''}</li>
       </ul>

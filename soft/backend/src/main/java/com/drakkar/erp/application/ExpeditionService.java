@@ -46,10 +46,6 @@ public class ExpeditionService {
             throw DomainException.conflict("STALE_EXPEDITION", "Данные похода устарели");
         }
 
-        Integer requiredCapacity = jdbc.queryForObject("""
-                select required_capacity from expedition
-                 where id = ? and settlement_id = ?
-                """, Integer.class, expeditionId, actor.settlementId());
         Integer readyCapacity = jdbc.queryForObject("""
                 select coalesce(sum(st.capacity), 0)::integer
                   from expedition_ship es
@@ -66,24 +62,24 @@ public class ExpeditionService {
         if (unfinishedShips != null && unfinishedShips > 0) {
             throw DomainException.conflict("FLEET_NOT_READY", "Во флоте есть недостроенные корабли");
         }
-        if (readyCapacity == null || requiredCapacity == null || readyCapacity < requiredCapacity) {
+        int[] crewCounts = jdbc.queryForObject("""
+                select (count(*) filter (where participation_status = 'CONFIRMED'))::integer as confirmed,
+                       (count(*) filter (where participation_status = 'PENDING'))::integer as pending
+                  from crew_assignment
+                 where expedition_id = ?
+                """, (rs, rowNum) -> new int[]{rs.getInt("confirmed"), rs.getInt("pending")}, expeditionId);
+        int confirmedCrew = crewCounts == null ? 0 : crewCounts[0];
+        int pendingCrew = crewCounts == null ? 0 : crewCounts[1];
+        int crewSize = confirmedCrew + pendingCrew;
+        if (readyCapacity == null || readyCapacity < crewSize) {
             throw DomainException.conflict(
                     "FLEET_CAPACITY_INSUFFICIENT",
-                    "Вместимости готового флота недостаточно для выхода");
+                    "Вместимости готового флота недостаточно для приглашённой команды");
         }
-
-        Integer confirmedCrew = jdbc.queryForObject("""
-                select count(*)::integer from crew_assignment
-                 where expedition_id = ? and participation_status = 'CONFIRMED'
-                """, Integer.class, expeditionId);
-        Integer pendingCrew = jdbc.queryForObject("""
-                select count(*)::integer from crew_assignment
-                 where expedition_id = ? and participation_status = 'PENDING'
-                """, Integer.class, expeditionId);
-        if (confirmedCrew == null || confirmedCrew == 0) {
+        if (confirmedCrew == 0) {
             throw DomainException.conflict("CREW_NOT_CONFIRMED", "Нужен хотя бы один подтверждённый участник");
         }
-        if (pendingCrew != null && pendingCrew > 0) {
+        if (pendingCrew > 0) {
             throw DomainException.conflict("CREW_DECISIONS_PENDING", "Не все участники ответили на назначение");
         }
 
@@ -95,7 +91,7 @@ public class ExpeditionService {
             throw DomainException.conflict("STALE_EXPEDITION", "Данные похода устарели");
         }
         audit.append(actor.settlementId(), actor.role(), "EXPEDITION_STARTED", "EXPEDITION", expeditionId,
-                "{\"readyCapacity\":" + readyCapacity + ",\"confirmedCrew\":" + confirmedCrew + "}");
+                "{\"readyCapacity\":" + readyCapacity + ",\"crewSize\":" + crewSize + "}");
     }
 
     public List<ApiModels.AllocationView> preview(

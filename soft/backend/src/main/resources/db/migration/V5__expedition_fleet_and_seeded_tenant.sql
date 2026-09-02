@@ -37,17 +37,6 @@ update ship set ship_type_code = 'DRAKKAR';
 alter table ship alter column ship_type_code set not null;
 alter table ship add constraint ship_type_fk foreign key (ship_type_code) references ship_type(code);
 
-alter table expedition add column required_capacity integer;
-update expedition set required_capacity = case id
-    when 201 then 55
-    when 202 then 70
-    when 203 then 20
-    when 204 then 40
-    else 20
-end;
-alter table expedition alter column required_capacity set not null;
-alter table expedition add constraint expedition_required_capacity_positive check (required_capacity > 0);
-
 create table expedition_ship (
     expedition_id bigint not null references expedition(id),
     ship_id bigint not null references ship(id),
@@ -144,11 +133,11 @@ insert into warehouse_stock(settlement_id, resource, quantity) values
     (2, 'THRALLS', 0);
 
 insert into expedition(
-    id, settlement_id, name, target, status, planned_departure, ship_name, required_capacity
+    id, settlement_id, name, target, status, planned_departure, ship_name
 ) values (
     205,
     2,
-    'Поход к Готланду', 'Торговая гавань Висбю', 'PREPARATION', '2026-10-18', 'Ледяной сокол', 20
+    'Поход к Готланду', 'Торговая гавань Висбю', 'PREPARATION', '2026-10-18', 'Ледяной сокол'
 );
 
 insert into ship(id, settlement_id, name, stage, blessed, ship_type_code) values

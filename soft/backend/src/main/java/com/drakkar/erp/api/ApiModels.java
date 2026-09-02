@@ -34,7 +34,7 @@ public final class ApiModels {
             String target,
             String status,
             LocalDate plannedDeparture,
-            int requiredCapacity,
+            int crewSize,
             int readyCapacity,
             int plannedCapacity,
             List<FleetShipView> fleet,
