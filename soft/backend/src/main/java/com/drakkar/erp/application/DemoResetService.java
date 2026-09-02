@@ -16,6 +16,8 @@ public class DemoResetService {
     private static final UUID BJORN = UUID.fromString("00000000-0000-0000-0000-000000000101");
     private static final UUID IVAR = UUID.fromString("00000000-0000-0000-0000-000000000102");
     private static final UUID FLOKI = UUID.fromString("00000000-0000-0000-0000-000000000103");
+    private static final UUID ULF = UUID.fromString("00000000-0000-0000-0000-000000000109");
+    private static final UUID ASTRID = UUID.fromString("00000000-0000-0000-0000-000000000110");
 
     private final JdbcTemplate jdbc;
 
@@ -65,11 +67,15 @@ public class DemoResetService {
         UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
         UUID completedFrisia = UUID.fromString("00000000-0000-0000-0000-000000000203");
         UUID completedMan = UUID.fromString("00000000-0000-0000-0000-000000000204");
+        UUID sailingOrkney = UUID.fromString("00000000-0000-0000-0000-000000000206");
+        UUID readyPreparation = UUID.fromString("00000000-0000-0000-0000-000000000207");
         UUID buildingShip = UUID.fromString("00000000-0000-0000-0000-000000000401");
         UUID seaWolf = UUID.fromString("00000000-0000-0000-0000-000000000402");
         UUID seaSerpent = UUID.fromString("00000000-0000-0000-0000-000000000403");
         UUID wolfFang = UUID.fromString("00000000-0000-0000-0000-000000000404");
         UUID raven = UUID.fromString("00000000-0000-0000-0000-000000000405");
+        UUID stormPetrel = UUID.fromString("00000000-0000-0000-0000-000000000407");
+        UUID iceGull = UUID.fromString("00000000-0000-0000-0000-000000000408");
 
         jdbc.update("""
                 insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
@@ -81,6 +87,16 @@ public class DemoResetService {
                 values (?, ?, ?, ?, 'PREPARATION', ?, 70)
                 """, preparation, settlementId, "Экспедиция в Нортумбрию", "Монастырь Линдисфарн",
                 LocalDate.of(2026, 10, 2));
+        jdbc.update("""
+                insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
+                values (?, ?, ?, ?, 'SAILING', ?, 40)
+                """, sailingOrkney, settlementId, "Поход к Оркнейским островам",
+                "Гавань на острове Мейнленд", LocalDate.of(2026, 9, 22));
+        jdbc.update("""
+                insert into expedition(id, settlement_id, name, target, status, planned_departure, required_capacity)
+                values (?, ?, ?, ?, 'PREPARATION', ?, 20)
+                """, readyPreparation, settlementId, "Поход к Шетландским островам",
+                "Поселение у пролива Брессей", LocalDate.of(2026, 10, 12));
         addCompletedExpedition(completedFrisia, settlementId,
                 "Поход к берегам Фризии", "Торговая гавань Дорестада",
                 LocalDate.of(2026, 7, 18), 20, 80, 35, 6, 45);
@@ -100,6 +116,10 @@ public class DemoResetService {
                 completedFrisia, HALVDAN, "разведчик", "CONFIRMED");
         addCrew(UUID.fromString("00000000-0000-0000-0000-000000000322"),
                 completedMan, BJORN, "херсир", "CONFIRMED");
+        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000323"),
+                sailingOrkney, ULF, "рулевой", "CONFIRMED");
+        addCrew(UUID.fromString("00000000-0000-0000-0000-000000000324"),
+                readyPreparation, ASTRID, "херсир", "CONFIRMED");
 
         for (var stock : List.of(
                 new Stock("WOOD", 120), new Stock("CLOTH", 35), new Stock("RESIN", 22),
@@ -118,6 +138,8 @@ public class DemoResetService {
         addReadyShip(seaSerpent, settlementId, "Морской змей", "DRAKKAR");
         addReadyShip(wolfFang, settlementId, "Волчий клык", "KNOERR");
         addReadyShip(raven, settlementId, "Ворон", "KNOERR");
+        addReadyShip(stormPetrel, settlementId, "Буревестник", "DRAKKAR");
+        addReadyShip(iceGull, settlementId, "Ледяная чайка", "KNOERR");
         jdbc.update("""
                 insert into ship_stage_requirement(ship_id, stage, resource, quantity)
                 select ?, stage, resource, quantity
@@ -130,6 +152,8 @@ public class DemoResetService {
         addShipToExpedition(preparation, buildingShip);
         addShipToExpedition(completedFrisia, raven);
         addShipToExpedition(completedMan, seaWolf);
+        addShipToExpedition(sailingOrkney, stormPetrel);
+        addShipToExpedition(readyPreparation, iceGull);
         jdbc.update("""
                 insert into ship_build_request(
                     id, settlement_id, expedition_id, ship_type_code, ship_id, requested_by, status, created_at
@@ -156,6 +180,13 @@ public class DemoResetService {
                 "{\"expedition\":\"Поход к берегам Уэссекса\"}");
         addAudit(settlementId, "JARL", "CREW_MEMBER_ASSIGNED", "EXPEDITION", preparation, 12,
                 "{\"assignmentId\":\"00000000-0000-0000-0000-000000000301\"}");
+        addAudit(settlementId, "JARL", "EXPEDITION_STARTED", "EXPEDITION", sailingOrkney, 144,
+                "{\"readyCapacity\":40,\"confirmedCrew\":1}");
+        addAudit(settlementId, "JARL", "EXPEDITION_PLANNED", "EXPEDITION", readyPreparation, 48,
+                "{\"target\":\"Поселение у пролива Брессей\"}");
+        addAudit(settlementId, "WARRIOR", "PARTICIPATION_CONFIRMED", "CREW_ASSIGNMENT",
+                UUID.fromString("00000000-0000-0000-0000-000000000324"), 24,
+                "{\"expedition\":\"Поход к Шетландским островам\"}");
     }
 
     private void addCompletedExpedition(

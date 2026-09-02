@@ -250,13 +250,26 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .capacity-bar i { display: block; height: 100%; border-radius: inherit; background: var(--green); }
 .capacity-block > small { color: var(--muted); font-size: 10px; }
 .fleet-list { display: grid; gap: 7px; }
-.fleet-list > div { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 58px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; }
+.fleet-list > div { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 58px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; }
 .fleet-list b, .fleet-list small { display: block; }
 .fleet-list b { font-size: 12px; }
 .fleet-list small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .ship-state { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-size: 10px; font-weight: 700; }
 .ship-state.ready { color: var(--green); background: #e7f2eb; }
 .ship-state.building { color: var(--accent); background: #faf0e3; }
+.remove-ship { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid #e4cac6; border-radius: 6px; color: var(--red); background: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.remove-ship:hover { background: #fdf3f2; }
+.remove-ship:disabled { cursor: default; opacity: .45; }
+.launch-box { display: grid; grid-template-columns: minmax(170px, .8fr) minmax(260px, 1.2fr) auto; align-items: center; gap: 18px; margin-top: 14px; padding: 14px; border: 1px solid #d9e2dd; border-radius: 8px; background: #f7faf8; }
+.launch-box > div b, .launch-box > div small { display: block; }
+.launch-box > div b { font-size: 12px; }
+.launch-box > div small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.launch-box ul { display: grid; gap: 4px; margin: 0; padding: 0; color: var(--muted); font-size: 9px; list-style: none; }
+.launch-box li { display: flex; align-items: center; gap: 6px; }
+.launch-box li span { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: #e7ebe8; font-size: 9px; }
+.launch-box li.ready { color: var(--green); }
+.launch-box li.ready span { color: #fff; background: var(--green); }
+.launch-box .primary { min-width: 120px; }
 .fleet-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
 .action-box { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
 .action-box > b, .action-box > small { display: block; }
@@ -338,6 +351,7 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .content { padding: 16px; }
   .metric-grid, .two-column, .loot-grid, .casualty-list, .button-row { grid-template-columns: 1fr; }
   .fleet-actions, .stock-grid { grid-template-columns: 1fr; }
+  .launch-box { grid-template-columns: 1fr; }
   .history-summary { grid-template-columns: repeat(2, 1fr); }
   .module-title-row { display: block; }
   .module-title-row select { width: 100%; margin-bottom: 16px; }

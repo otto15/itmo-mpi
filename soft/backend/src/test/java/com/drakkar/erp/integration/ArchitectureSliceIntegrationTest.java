@@ -27,6 +27,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -101,14 +102,14 @@ class ArchitectureSliceIntegrationTest {
     void demoFixtureContainsSeveralExpeditionsAndHistoryFromEveryRole() {
         assertThat(jdbc.queryForObject("""
                 select count(*) from expedition where settlement_id = ?
-                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(4);
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(6);
         assertThat(jdbc.queryForObject("""
                 select count(*) from expedition
                  where settlement_id = ? and status = 'COMPLETED'
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(2);
         assertThat(jdbc.queryForObject("""
                 select count(*) from audit_event where settlement_id = ?
-                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(8);
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(11);
         assertThat(jdbc.queryForObject("""
                 select count(distinct actor_role) from audit_event where settlement_id = ?
                 """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(4);
@@ -345,7 +346,7 @@ class ArchitectureSliceIntegrationTest {
                         .header("Authorization", "Bearer " + kattegatLogin.token()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.activeSettlementName").value("Каттегат"))
-                .andExpect(jsonPath("$.expeditions.length()").value(4));
+                .andExpect(jsonPath("$.expeditions.length()").value(6));
     }
 
     @Test
@@ -402,6 +403,44 @@ class ArchitectureSliceIntegrationTest {
         assertThatThrownBy(() -> shipyard.assignReadyShip(jarl, preparation, freeShip))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("уже назначен в активный поход");
+    }
+
+    @Test
+    void jarlRemovesShipFromPreparationFleetAndDetachesItsBuildOrder() throws Exception {
+        ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026"));
+        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+
+        mockMvc.perform(delete("/api/expeditions/{expeditionId}/ships/{shipId}", preparation, SHIP)
+                        .header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject("""
+                select count(*) from expedition_ship where expedition_id = ? and ship_id = ?
+                """, Integer.class, preparation, SHIP)).isZero();
+        assertThat(jdbc.queryForObject("""
+                select expedition_id from ship_build_request where ship_id = ?
+                """, UUID.class, SHIP)).isNull();
+        assertThat(jdbc.queryForObject("""
+                select count(*) from audit_event where aggregate_id = ? and event_type = 'SHIP_REMOVED'
+                """, Integer.class, preparation)).isEqualTo(1);
+    }
+
+    @Test
+    void readyExpeditionStartsButIncompleteFleetIsRejected() {
+        AuthenticatedUser jarl = login("ragnar", "raven-2026");
+        UUID readyPreparation = UUID.fromString("00000000-0000-0000-0000-000000000207");
+        UUID incompletePreparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+
+        expeditions.start(jarl, readyPreparation, new ApiModels.StartExpeditionRequest(0));
+
+        assertThat(jdbc.queryForObject(
+                "select status from expedition where id = ?", String.class, readyPreparation)).isEqualTo("SAILING");
+        assertThat(jdbc.queryForObject(
+                "select version from expedition where id = ?", Integer.class, readyPreparation)).isEqualTo(1);
+        assertThatThrownBy(() -> expeditions.start(
+                jarl, incompletePreparation, new ApiModels.StartExpeditionRequest(0)))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("недостроенные корабли");
     }
 
     private AuthenticatedUser login(String username, String password) {

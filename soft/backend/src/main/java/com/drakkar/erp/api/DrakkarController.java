@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -135,6 +136,30 @@ public class DrakkarController {
         RoleGuard.require(actor.role(), Role.JARL);
         shipyard.assignReadyShip(actor, expeditionId, request.shipId());
         return new ApiModels.MessageResponse("SHIP_ASSIGNED", "Корабль добавлен во флот похода");
+    }
+
+    @DeleteMapping("/expeditions/{expeditionId}/ships/{shipId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeShip(
+            @PathVariable UUID expeditionId,
+            @PathVariable UUID shipId,
+            HttpServletRequest servletRequest
+    ) {
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        shipyard.removeShip(actor, expeditionId, shipId);
+    }
+
+    @PostMapping("/expeditions/{expeditionId}/start")
+    public ApiModels.MessageResponse startExpedition(
+            @PathVariable UUID expeditionId,
+            @Valid @RequestBody ApiModels.StartExpeditionRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        expeditions.start(actor, expeditionId, request);
+        return new ApiModels.MessageResponse("EXPEDITION_STARTED", "Поход начат");
     }
 
     @PostMapping("/expeditions/{expeditionId}/ship-requests")

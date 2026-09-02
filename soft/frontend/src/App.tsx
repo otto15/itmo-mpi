@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, ApiError } from './api'
+import { api, apiDelete, ApiError } from './api'
 import type { Allocation, Crew, DemoState, Expedition, Loot, Role, Session } from './types'
 
 type Tab = 'overview' | 'expeditions' | 'crew' | 'shipyard' | 'resources' | 'results' | 'history'
@@ -200,6 +200,11 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
   const readyShortage = Math.max(0, expedition.requiredCapacity - expedition.readyCapacity)
   const plannedShortage = Math.max(0, expedition.requiredCapacity - expedition.plannedCapacity)
   const canManage = session.role === 'JARL' && expedition.status === 'PREPARATION'
+  const expeditionCrew = state.crew.filter(member => member.expeditionId === expedition.id)
+  const confirmedCrew = expeditionCrew.filter(member => member.participationStatus === 'CONFIRMED').length
+  const pendingCrew = expeditionCrew.filter(member => member.participationStatus === 'PENDING').length
+  const allShipsReady = expedition.fleet.length > 0 && expedition.fleet.every(ship => ship.ready)
+  const canStart = readyShortage === 0 && allShipsReady && confirmedCrew > 0 && pendingCrew === 0
   return <>
     <div className="detail-heading">
       <div><span>Карточка похода</span><h2>{expedition.name}</h2><p>{expedition.target} · {dateOf(expedition.plannedDeparture)}</p></div>
@@ -212,9 +217,18 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
     </div>
     <h3>Флот похода</h3>
     <div className="fleet-list">
-      {expedition.fleet.map(ship => <div key={ship.id}><span className={ship.ready ? 'ship-state ready' : 'ship-state building'}>{ship.ready ? '✓' : ship.stage}</span><span><b>{ship.name}</b><small>{ship.typeName} · {ship.capacity} мест</small></span><Status value={ship.ready ? 'READY' : 'IN_CONSTRUCTION'} /></div>)}
+      {expedition.fleet.map(ship => <div key={ship.id}><span className={ship.ready ? 'ship-state ready' : 'ship-state building'}>{ship.ready ? '✓' : ship.stage}</span><span><b>{ship.name}</b><small>{ship.typeName} · {ship.capacity} мест</small></span><Status value={ship.ready ? 'READY' : 'IN_CONSTRUCTION'} />{canManage && <button className="remove-ship" aria-label={`Убрать корабль ${ship.name}`} title="Убрать из похода" disabled={busy} onClick={() => void perform(() => apiDelete(`/api/expeditions/${expedition.id}/ships/${ship.id}`, session.token), 'Корабль убран из похода')}>×</button>}</div>)}
       {!expedition.fleet.length && <Empty title="Корабли не назначены" />}
     </div>
+    {canManage && <div className="launch-box">
+      <div><b>Готовность к выходу</b><small>Поход начнётся, когда выполнены все условия</small></div>
+      <ul>
+        <li className={readyShortage === 0 ? 'ready' : ''}><span>{readyShortage === 0 ? '✓' : '·'}</span>Вместимость флота {expedition.readyCapacity} / {expedition.requiredCapacity}</li>
+        <li className={allShipsReady ? 'ready' : ''}><span>{allShipsReady ? '✓' : '·'}</span>{allShipsReady ? 'Все корабли готовы' : 'Есть недостроенные корабли'}</li>
+        <li className={confirmedCrew > 0 && pendingCrew === 0 ? 'ready' : ''}><span>{confirmedCrew > 0 && pendingCrew === 0 ? '✓' : '·'}</span>{confirmedCrew ? `Подтверждено участников: ${confirmedCrew}` : 'Нет подтверждённых участников'}{pendingCrew ? ` · ожидается ответ: ${pendingCrew}` : ''}</li>
+      </ul>
+      <button className="primary" disabled={busy || !canStart} onClick={() => void perform(() => api(`/api/expeditions/${expedition.id}/start`, session.token, { expectedVersion: expedition.version }), 'Поход начат')}>Начать поход</button>
+    </div>}
     {canManage && <div className="fleet-actions">
       <div className="action-box">
         <b>Добавить готовый корабль</b>
@@ -278,7 +292,9 @@ function ResourcesModule({ state }: { state: DemoState }) {
 }
 
 function ResultsModule({ state, session, busy, perform }: ModuleProps) {
-  const expedition = state.expeditions.find(item => item.status === 'SAILING')
+  const sailing = state.expeditions.filter(item => item.status === 'SAILING')
+  const [selectedId, setSelectedId] = useState(sailing[0]?.id ?? '')
+  const expedition = sailing.find(item => item.id === selectedId) ?? sailing[0]
   const crew = state.crew.filter(item => item.expeditionId === expedition?.id)
   const [loot, setLoot] = useState<Loot>({ gold: 100, provisions: 50, thralls: 10 })
   const [fallen, setFallen] = useState<string[]>([])
@@ -286,8 +302,9 @@ function ResultsModule({ state, session, busy, perform }: ModuleProps) {
   const payload = { loot, fallenAssignmentIds: fallen, expectedVersion: expedition?.version ?? 0 }
   function setResource(key: keyof Loot, value: string) { setLoot(old => ({ ...old, [key]: Math.max(0, Number(value) || 0) })) }
   function toggleFallen(id: string) { setFallen(old => old.includes(id) ? old.filter(item => item !== id) : [...old, id]) }
+  useEffect(() => { setFallen([]); setPreview([]) }, [expedition?.id])
   if (!expedition) return <section className="panel"><Empty title="Нет похода в плавании" /></section>
-  return <section className="module-grid results-grid"><div className="panel wide"><PanelHead overline="Завершение похода" title={expedition.name} />
+  return <section className="module-grid results-grid"><div className="panel wide"><div className="module-title-row"><PanelHead overline="Завершение похода" title={expedition.name} />{sailing.length > 1 && <select value={expedition.id} onChange={event => setSelectedId(event.target.value)}>{sailing.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div>
     <h3>Фактическая добыча</h3><div className="loot-grid">{(['gold', 'provisions', 'thralls'] as (keyof Loot)[]).map(key => <label key={key}><span>{resourceNames[key.toUpperCase()]}</span><input type="number" min="0" value={loot[key]} onChange={event => setResource(key, event.target.value)} /></label>)}</div>
     <h3>Состав и потери</h3><div className="casualty-list">{crew.map(member => <label key={member.id} className={fallen.includes(member.id) ? 'fallen' : ''}><input type="checkbox" checked={fallen.includes(member.id)} onChange={() => toggleFallen(member.id)} /><span>{member.userName}<small>{member.expeditionRole}</small></span><b>{fallen.includes(member.id) ? 'Погиб' : 'Выжил'}</b></label>)}</div>
     {session.role === 'JARL' ? <div className="button-row"><button className="secondary" disabled={busy} onClick={() => void perform(() => api<Allocation[]>(`/api/expeditions/${expedition.id}/finalization-preview`, session.token, payload), 'Предварительный расчёт готов', setPreview)}>Рассчитать Вергельд</button><button className="primary" disabled={busy || !preview.length} onClick={() => void perform(() => api<Allocation[]>(`/api/expeditions/${expedition.id}/finalize`, session.token, payload), 'Итоги утверждены', setPreview)}>Утвердить итоги</button></div> : <RolePrompt role="JARL" />}
@@ -324,6 +341,6 @@ function messageOf(error: unknown) { return error instanceof Error ? error.messa
 function dateOf(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) }
 function dateTimeOf(value: string) { return new Date(value).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }
 function tabTitle(tab: Tab) { return ({ overview: 'Обзор', expeditions: 'Походы', crew: 'Команда', shipyard: 'Верфь', resources: 'Ресурсы', results: 'Итоги похода', history: 'История походов' } as const)[tab] }
-function eventLabel(value: string) { const labels: Record<string, string> = { CREW_MEMBER_ASSIGNED: 'Участник добавлен в команду', PARTICIPATION_CONFIRMED: 'Участие подтверждено', PARTICIPATION_DECLINED: 'Участник отказался от похода', SHIP_ASSIGNED: 'Корабль добавлен во флот', SHIP_BUILD_REQUESTED: 'Запрошено строительство корабля', SHIP_STAGE_COMPLETED: 'Этап строительства завершён', SHIP_BLESSED: 'Корабль благословлён', EXPEDITION_FINALIZED: 'Итоги похода утверждены', EXPEDITION_PLANNED: 'Поход запланирован' }; return labels[value] ?? 'Изменение сохранено' }
+function eventLabel(value: string) { const labels: Record<string, string> = { CREW_MEMBER_ASSIGNED: 'Участник добавлен в команду', PARTICIPATION_CONFIRMED: 'Участие подтверждено', PARTICIPATION_DECLINED: 'Участник отказался от похода', SHIP_ASSIGNED: 'Корабль добавлен во флот', SHIP_REMOVED: 'Корабль убран из похода', SHIP_BUILD_REQUESTED: 'Запрошено строительство корабля', SHIP_STAGE_COMPLETED: 'Этап строительства завершён', SHIP_BLESSED: 'Корабль благословлён', EXPEDITION_STARTED: 'Поход начат', EXPEDITION_FINALIZED: 'Итоги похода утверждены', EXPEDITION_PLANNED: 'Поход запланирован' }; return labels[value] ?? 'Изменение сохранено' }
 
 export default App

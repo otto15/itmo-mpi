@@ -124,6 +124,31 @@ public class ShipyardService {
     }
 
     @Transactional
+    public void removeShip(AuthenticatedUser actor, UUID expeditionId, UUID shipId) {
+        requirePreparation(actor.settlementId(), expeditionId);
+        Integer assigned = jdbc.query("""
+                select 1
+                  from expedition_ship es
+                  join ship s on s.id = es.ship_id
+                 where es.expedition_id = ? and es.ship_id = ? and s.settlement_id = ?
+                   for update of es, s
+                """, rs -> rs.next() ? 1 : null, expeditionId, shipId, actor.settlementId());
+        if (assigned == null) {
+            throw DomainException.notFound("Корабль во флоте похода");
+        }
+
+        jdbc.update("delete from expedition_ship where expedition_id = ? and ship_id = ?",
+                expeditionId, shipId);
+        jdbc.update("""
+                update ship_build_request
+                   set expedition_id = null
+                 where settlement_id = ? and expedition_id = ? and ship_id = ?
+                """, actor.settlementId(), expeditionId, shipId);
+        audit.append(actor.settlementId(), actor.role(), "SHIP_REMOVED", "EXPEDITION", expeditionId,
+                "{\"shipId\":\"" + shipId + "\"}");
+    }
+
+    @Transactional
     public UUID requestShip(
             AuthenticatedUser actor,
             UUID expeditionId,

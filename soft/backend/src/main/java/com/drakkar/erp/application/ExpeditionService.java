@@ -31,6 +31,74 @@ public class ExpeditionService {
         this.audit = audit;
     }
 
+    @Transactional
+    public void start(
+            AuthenticatedUser actor,
+            UUID expeditionId,
+            ApiModels.StartExpeditionRequest request
+    ) {
+        ExpeditionRow expedition = findExpedition(actor.settlementId(), expeditionId, true);
+        if (!"PREPARATION".equals(expedition.status())) {
+            throw DomainException.conflict(
+                    "EXPEDITION_NOT_IN_PREPARATION",
+                    "Начать можно только поход на этапе подготовки");
+        }
+        if (expedition.version() != request.expectedVersion()) {
+            throw DomainException.conflict("STALE_EXPEDITION", "Данные похода устарели");
+        }
+
+        Integer requiredCapacity = jdbc.queryForObject("""
+                select required_capacity from expedition
+                 where id = ? and settlement_id = ?
+                """, Integer.class, expeditionId, actor.settlementId());
+        Integer readyCapacity = jdbc.queryForObject("""
+                select coalesce(sum(st.capacity), 0)::integer
+                  from expedition_ship es
+                  join ship s on s.id = es.ship_id and s.settlement_id = ?
+                  join ship_type st on st.code = s.ship_type_code
+                 where es.expedition_id = ? and s.stage = 4
+                """, Integer.class, actor.settlementId(), expeditionId);
+        Integer unfinishedShips = jdbc.queryForObject("""
+                select count(*)::integer
+                  from expedition_ship es
+                  join ship s on s.id = es.ship_id and s.settlement_id = ?
+                 where es.expedition_id = ? and s.stage < 4
+                """, Integer.class, actor.settlementId(), expeditionId);
+        if (unfinishedShips != null && unfinishedShips > 0) {
+            throw DomainException.conflict("FLEET_NOT_READY", "Во флоте есть недостроенные корабли");
+        }
+        if (readyCapacity == null || requiredCapacity == null || readyCapacity < requiredCapacity) {
+            throw DomainException.conflict(
+                    "FLEET_CAPACITY_INSUFFICIENT",
+                    "Вместимости готового флота недостаточно для выхода");
+        }
+
+        Integer confirmedCrew = jdbc.queryForObject("""
+                select count(*)::integer from crew_assignment
+                 where expedition_id = ? and participation_status = 'CONFIRMED'
+                """, Integer.class, expeditionId);
+        Integer pendingCrew = jdbc.queryForObject("""
+                select count(*)::integer from crew_assignment
+                 where expedition_id = ? and participation_status = 'PENDING'
+                """, Integer.class, expeditionId);
+        if (confirmedCrew == null || confirmedCrew == 0) {
+            throw DomainException.conflict("CREW_NOT_CONFIRMED", "Нужен хотя бы один подтверждённый участник");
+        }
+        if (pendingCrew != null && pendingCrew > 0) {
+            throw DomainException.conflict("CREW_DECISIONS_PENDING", "Не все участники ответили на назначение");
+        }
+
+        int changed = jdbc.update("""
+                update expedition set status = 'SAILING', version = version + 1
+                 where id = ? and settlement_id = ? and status = 'PREPARATION' and version = ?
+                """, expeditionId, actor.settlementId(), request.expectedVersion());
+        if (changed != 1) {
+            throw DomainException.conflict("STALE_EXPEDITION", "Данные похода устарели");
+        }
+        audit.append(actor.settlementId(), actor.role(), "EXPEDITION_STARTED", "EXPEDITION", expeditionId,
+                "{\"readyCapacity\":" + readyCapacity + ",\"confirmedCrew\":" + confirmedCrew + "}");
+    }
+
     public List<ApiModels.AllocationView> preview(
             AuthenticatedUser actor,
             UUID expeditionId,

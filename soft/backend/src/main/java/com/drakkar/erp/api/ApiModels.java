@@ -147,6 +147,9 @@ public final class ApiModels {
     public record AssignShipRequest(@NotNull UUID shipId) {
     }
 
+    public record StartExpeditionRequest(@Min(0) int expectedVersion) {
+    }
+
     public record RequestShipRequest(
             @NotBlank @Size(max = 120) String shipName,
             @NotBlank String shipTypeCode
