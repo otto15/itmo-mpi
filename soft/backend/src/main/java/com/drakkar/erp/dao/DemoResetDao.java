@@ -12,7 +12,7 @@ public class DemoResetDao {
     private static final Long HALVDAN = 104L;
     private static final Long BJORN = 101L;
     private static final Long IVAR = 102L;
-    private static final Long FLOKI = 103L;
+    private static final Long THORSTEIN = 105L;
     private static final Long ULF = 109L;
     private static final Long ASTRID = 110L;
     private static final Long SIGURD = 111L;
@@ -61,7 +61,7 @@ public class DemoResetDao {
         addCrew(301L, preparation, HALVDAN, "рулевой", "PENDING");
         addCrew(311L, sailing, BJORN, "херсир", "CONFIRMED");
         addCrew(312L, sailing, IVAR, "щитоносец", "CONFIRMED");
-        addCrew(313L, sailing, FLOKI, "корабельный мастер", "CONFIRMED");
+        addCrew(313L, sailing, THORSTEIN, "корабельный мастер", "CONFIRMED");
         addCrew(321L, completedFrisia, HALVDAN, "разведчик", "CONFIRMED");
         addCrew(322L, completedMan, BJORN, "херсир", "CONFIRMED");
         addCrew(323L, sailingOrkney, ULF, "рулевой", "CONFIRMED");

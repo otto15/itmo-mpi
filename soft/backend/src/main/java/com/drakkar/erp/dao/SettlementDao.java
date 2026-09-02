@@ -15,7 +15,7 @@ public class SettlementDao {
 
     public boolean usernameExists(String username) {
         Integer found = jdbc.query("""
-                select 1 from user_account where lower(username) = lower(:username)
+                select 1 from app_user where lower(username) = lower(:username)
                 """, Map.of("username", username), rs -> rs.next() ? 1 : null);
         return found != null;
     }
@@ -27,22 +27,16 @@ public class SettlementDao {
                 Long.class);
     }
 
-    public Long createUser(String displayName) {
-        return jdbc.queryForObject(
-                "insert into app_user(display_name) values (:displayName) returning id",
-                Map.of("displayName", displayName),
-                Long.class);
-    }
-
-    public void createAccount(Long userId, String username, byte[] salt, byte[] hash) {
-        jdbc.update("""
-                insert into user_account(user_id, username, password_salt, password_hash)
-                values (:userId, :username, :salt, :hash)
+    public Long createUser(String displayName, String username, byte[] salt, byte[] hash) {
+        return jdbc.queryForObject("""
+                insert into app_user(display_name, username, password_salt, password_hash)
+                values (:displayName, :username, :salt, :hash)
+                returning id
                 """, Map.of(
-                "userId", userId,
+                "displayName", displayName,
                 "username", username,
                 "salt", salt,
-                "hash", hash));
+                "hash", hash), Long.class);
     }
 
     public void addJarlMembership(Long settlementId, Long userId) {

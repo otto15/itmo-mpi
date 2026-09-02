@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -98,6 +99,28 @@ class ArchitectureSliceIntegrationTest {
         assertThatThrownBy(() -> auth.login(new ApiModels.LoginRequest("ragnar", "wrong-password")))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("Неверный логин или пароль");
+    }
+
+    @Test
+    void everySeededCrewMemberCanAuthenticate() {
+        Map<String, String> credentials = Map.of(
+                "bjorn", "ironside-2026",
+                "ivar", "boneless-2026",
+                "halvdan", "shield-2026",
+                "thorstein", "red-spear-2026",
+                "ulf", "white-wolf-2026",
+                "astrid", "shieldmaiden-2026",
+                "sigurd", "serpent-eye-2026");
+        List<String> crewUsernames = jdbc.queryForList("""
+                select distinct u.username
+                  from crew_assignment ca
+                  join app_user u on u.id = ca.user_id
+                 order by u.username
+                """, String.class);
+
+        assertThat(crewUsernames).containsExactlyInAnyOrderElementsOf(credentials.keySet());
+        credentials.forEach((username, password) ->
+                assertThat(auth.login(new ApiModels.LoginRequest(username, password)).token()).isNotBlank());
     }
 
     @Test
@@ -215,8 +238,8 @@ class ArchitectureSliceIntegrationTest {
     @Test
     void jarlAssignsAvailableWarriorOnlyOnceAndWritesAudit() {
         AuthenticatedUser jarl = login("ragnar", "raven-2026");
-        Long thorstein = 105L;
-        var request = new ApiModels.AddCrewRequest(thorstein, "разведчик");
+        Long einar = 112L;
+        var request = new ApiModels.AddCrewRequest(einar, "разведчик");
         int auditBefore = jdbc.queryForObject("""
                 select count(*) from audit_event
                  where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
@@ -238,7 +261,7 @@ class ArchitectureSliceIntegrationTest {
         assertThat(jdbc.queryForObject("""
                 select count(*) from crew_assignment
                  where user_id = ? and participation_status <> 'REMOVED'
-                """, Integer.class, thorstein)).isEqualTo(1);
+                """, Integer.class, einar)).isEqualTo(1);
     }
 
     @Test

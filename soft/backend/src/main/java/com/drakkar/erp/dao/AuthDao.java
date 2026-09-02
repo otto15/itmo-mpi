@@ -30,11 +30,10 @@ public class AuthDao {
     public Account findEnabledAccount(String username) {
         return jdbc.query("""
                 select u.id, u.display_name, sm.member_role, sm.settlement_id,
-                       a.password_salt, a.password_hash
-                  from user_account a
-                  join app_user u on u.id = a.user_id
+                       u.password_salt, u.password_hash
+                  from app_user u
                   join settlement_membership sm on sm.user_id = u.id
-                 where lower(a.username) = lower(:username) and a.enabled = true
+                 where lower(u.username) = lower(:username) and u.enabled = true
                 """, Map.of("username", username), rs -> rs.next() ? new Account(
                 rs.getLong("id"),
                 rs.getString("display_name"),
@@ -61,14 +60,13 @@ public class AuthDao {
                        st.id as settlement_id, st.name as settlement_name
                   from user_session s
                   join app_user u on u.id = s.user_id
-                  join user_account a on a.user_id = u.id
                   join settlement st on st.id = s.active_settlement_id
                   join settlement_membership sm
                     on sm.user_id = u.id and sm.settlement_id = st.id
                  where s.token_hash = :tokenHash
                    and s.revoked_at is null
                    and s.expires_at > now()
-                   and a.enabled = true
+                   and u.enabled = true
                 """, Map.of("tokenHash", tokenHash), rs -> rs.next() ? new AuthenticatedUser(
                 rs.getLong("id"),
                 rs.getString("display_name"),

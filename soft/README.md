@@ -59,12 +59,19 @@ docker compose up --build
 | Роль | Логин | Пароль |
 |---|---|---|
 | Ярл Каттегата | `ragnar` | `raven-2026` |
-| Воин | `halvdan` | `shield-2026` |
 | Кораблестроитель | `floki` | `oak-2026` |
 | Жрец | `godi` | `blot-2026` |
 | Ярл Бирки | `erik` | `birka-2026` |
+| Воин Бьёрн | `bjorn` | `ironside-2026` |
+| Воин Ивар | `ivar` | `boneless-2026` |
+| Воин Хальвдан | `halvdan` | `shield-2026` |
+| Воин Торстейн | `thorstein` | `red-spear-2026` |
+| Воин Ульф | `ulf` | `white-wolf-2026` |
+| Воин Астрид | `astrid` | `shieldmaiden-2026` |
+| Воин Сигурд | `sigurd` | `serpent-eye-2026` |
+| Воин Эйнар | `einar` | `axe-bearer-2026` |
 
-Экран входа выполняет реальную аутентификацию по логину и паролю. После входа сервер сам определяет поселение и роль пользователя. Другие поселения интерфейс и обычный API не показывают.
+Каждый пользователь, которого можно назначить в поход, имеет собственный логин и может лично подтвердить или отклонить приглашение. Экран входа выполняет реальную аутентификацию по логину и паролю. После входа сервер сам определяет поселение и роль пользователя. Другие поселения интерфейс и обычный API не показывают.
 
 Демо-набор Каттегата содержит семь походов: два одновременно находятся в плавании, три готовятся и два завершены. Поход к Шетландским островам полностью готов и позволяет сразу показать действие «Начать поход». В поход к Уэссексу назначены два корабля, для Нортумбрии показан строящийся корабль, а разведка Фарерских островов демонстрирует нехватку мест для приглашённого участника. События ярла, воина, кораблестроителя и жреца отображаются внутри карточек соответствующих походов.
 
@@ -126,9 +133,5 @@ npm audit --omit=dev
 - [Software Architecture Document](docs/Software%20Architecture%20Document.md);
 - [матрица покрытия и руководство по демонстрации](docs/Architecture%20Demonstration%20Guide.md);
 - [ER-схема и описание базы данных](docs/Database%20Schema.md);
-- [исходная SQL-миграция](backend/src/main/resources/db/migration/V1__architecture_slice.sql);
-- [миграция поселений](backend/src/main/resources/db/migration/V2__settlements.sql);
-- [ограничение «один аккаунт — одно поселение»](backend/src/main/resources/db/migration/V3__single_settlement_accounts.sql);
-- [расширенный демонстрационный набор](backend/src/main/resources/db/migration/V4__richer_demo_data.sql).
-- [флот, рецепты, заказы и второе демонстрационное поселение](backend/src/main/resources/db/migration/V5__expedition_fleet_and_seeded_tenant.sql).
-- [параллельные походы и отвязка кораблей](backend/src/main/resources/db/migration/V6__parallel_expeditions_and_detachable_orders.sql).
+- [полная схема PostgreSQL](backend/src/main/resources/db/migration/V1__schema.sql);
+- [демонстрационные данные](backend/src/main/resources/db/migration/V2__demo_data.sql).

@@ -1,12 +1,11 @@
 # Схема базы данных Drakkar ERP Soft
 
-База данных работает на PostgreSQL 16. Flyway создаёт и обновляет схему автоматически при запуске приложения. Исполняемые версии находятся в каталоге [`db/migration`](../backend/src/main/resources/db/migration): `V1` создаёт исходный срез, `V2` добавляет поселения, `V3` закрепляет аккаунт за одним поселением, `V4` расширяет демо-данные, `V5` добавляет флот, рецепты кораблей, заказы верфи и второе демонстрационное поселение, а `V6` — параллельные походы и возможность отвязать строящийся корабль от похода.
+База данных работает на PostgreSQL 16. Flyway создаёт её автоматически при запуске приложения. В каталоге [`db/migration`](../backend/src/main/resources/db/migration) находятся ровно две исполняемые миграции: [`V1__schema.sql`](../backend/src/main/resources/db/migration/V1__schema.sql) создаёт полную схему, а [`V2__demo_data.sql`](../backend/src/main/resources/db/migration/V2__demo_data.sql) отдельно загружает демонстрационные данные.
 
 ## ER-схема
 
 ```mermaid
 erDiagram
-    APP_USER ||--o| USER_ACCOUNT : "имеет учётную запись"
     APP_USER ||--o{ USER_SESSION : "открывает сессии"
     APP_USER ||--|| SETTLEMENT_MEMBERSHIP : "принадлежит"
     SETTLEMENT ||--o{ SETTLEMENT_MEMBERSHIP : "включает пользователей"
@@ -43,10 +42,6 @@ erDiagram
     APP_USER {
         bigint id PK
         varchar display_name
-    }
-
-    USER_ACCOUNT {
-        bigint user_id PK, FK
         varchar username UK
         bytea password_salt
         bytea password_hash
@@ -166,22 +161,22 @@ erDiagram
 
 ## Изоляция поселений
 
-`settlement` — корень клиентского пространства. Каждая учётная запись связана ровно с одним поселением через `settlement_membership`; уникальное ограничение на `user_id` запрещает добавить пользователя во второе. Роль хранится в этой же связи.
+`settlement` — корень клиентского пространства. Каждый `app_user` содержит и профиль, и обязательные реквизиты входа, а через `settlement_membership` связан ровно с одним поселением. Уникальное ограничение на `user_id` запрещает добавить пользователя во второе пространство. Роль хранится в этой же связи.
 
 При успешном входе сервер находит членство по логину и автоматически записывает его `settlement_id` в `user_session.active_settlement_id`. Пользователь не выбирает поселение и не получает список других пространств.
 
 Походы, склад, корабли, заказы и аудит содержат `settlement_id`. Состав команды, флот и распределение Вергельда наследуют принадлежность через `expedition`, требования этапов — через `ship`. Все прикладные запросы получают идентификатор поселения из проверенной серверной сессии и используют его в условиях чтения и изменения. Идентификатор не принимается из тела бизнес-запроса.
 
-Доступность участника вычисляется по `crew_assignment` вместе со статусом связанного `expedition`: назначения `PENDING` и `CONFIRMED` в походах `PREPARATION` или `SAILING` делают жителя занятым. Членство жителя блокируется на время операции назначения, поэтому два параллельных запроса не могут отправить его в разные активные походы. `DECLINED` и завершённый поход больше не блокируют новое назначение.
+Доступность участника вычисляется по `crew_assignment` вместе со статусом связанного `expedition`: назначения `PENDING` и `CONFIRMED` в походах `PREPARATION` или `SAILING` делают жителя занятым. `crew_assignment.user_id` ссылается на `app_user`, где логин, соль и хеш объявлены `not null`, поэтому каждый приглашённый может войти и ответить самостоятельно. Членство воина блокируется на время операции назначения, поэтому два параллельных запроса не могут отправить его в разные активные походы. `DECLINED` и завершённый поход больше не блокируют новое назначение.
 
-Склад имеет составной первичный ключ `(settlement_id, resource)`: одинаковый ресурс существует отдельно у каждого клиента. Защищённая операция подключения поселения атомарно добавляет пространство, нового пользователя, его учётную запись с ролью ярла и пустые складские позиции.
+Склад имеет составной первичный ключ `(settlement_id, resource)`: одинаковый ресурс существует отдельно у каждого клиента. Защищённая операция подключения поселения атомарно добавляет пространство, нового ярла вместе с реквизитами входа, его членство и пустые складские позиции.
 
 ## Как данные сгруппированы
 
 | Область | Таблицы | Назначение |
 |---|---|---|
 | Поселения | `settlement`, `settlement_membership` | клиентские пространства, пользователи и роли внутри них |
-| Авторизация | `app_user`, `user_account`, `user_session` | пользователь, данные входа, автоматически назначенное поселение и серверные сессии |
+| Авторизация | `app_user`, `user_session` | пользователь вместе с данными входа, автоматически назначенное поселение и серверные сессии |
 | Походы | `expedition`, `crew_assignment`, `expedition_ship`, `wergild_allocation` | план похода, команда, флот, добыча и Вергельд |
 | Верфь | `ship_type`, `ship_type_requirement`, `ship_build_request`, `ship`, `ship_stage_requirement` | каталог типов, рецепты, заказы и состояние строительства |
 | Склад | `warehouse_stock` | отдельные остатки каждого поселения |
@@ -204,14 +199,24 @@ cd soft
 docker compose exec postgres psql -U drakkar -d drakkar -c '\dt'
 ```
 
-Описание таблиц поселений и походов:
+Описание таблиц пользователей, поселений и походов:
 
 ```bash
+docker compose exec postgres psql -U drakkar -d drakkar -c '\d app_user'
 docker compose exec postgres psql -U drakkar -d drakkar -c '\d settlement'
 docker compose exec postgres psql -U drakkar -d drakkar -c '\d expedition'
 docker compose exec postgres psql -U drakkar -d drakkar -c '\d expedition_ship'
 docker compose exec postgres psql -U drakkar -d drakkar -c '\d ship_build_request'
 ```
+
+Список всех людей с их логинами, ролями и поселениями:
+
+```bash
+docker compose exec postgres psql -U drakkar -d drakkar -c \
+  'select u.id, u.display_name, u.username, u.enabled, m.member_role, s.name as settlement from app_user u join settlement_membership m on m.user_id = u.id join settlement s on s.id = m.settlement_id order by s.id, u.id;'
+```
+
+Пароли в открытом виде в БД не хранятся. Для демонстрационных пользователей они указаны в [`README.md`](../README.md#демонстрационные-учётные-записи).
 
 Проверка количества походов по поселениям:
 

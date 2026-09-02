@@ -54,8 +54,8 @@ public class SettlementService {
         PasswordHasher.EncodedPassword password = passwordHasher.encode(
                 request.password().toCharArray());
         Long settlementId = dao.createSettlement(settlementName);
-        Long jarlId = dao.createUser(request.jarlDisplayName().trim());
-        dao.createAccount(jarlId, username, password.salt(), password.hash());
+        Long jarlId = dao.createUser(
+                request.jarlDisplayName().trim(), username, password.salt(), password.hash());
         dao.addJarlMembership(settlementId, jarlId);
         STOCK_RESOURCES.forEach(resource -> dao.createEmptyStock(settlementId, resource));
 
