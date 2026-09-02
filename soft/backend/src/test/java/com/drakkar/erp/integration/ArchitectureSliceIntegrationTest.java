@@ -9,6 +9,7 @@ import com.drakkar.erp.application.ShipyardService;
 import com.drakkar.erp.domain.DomainException;
 import com.drakkar.erp.domain.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,8 +20,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.UUID;
@@ -34,7 +33,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@Testcontainers
 class ArchitectureSliceIntegrationTest {
     private static final UUID PREPARATION_ASSIGNMENT = UUID.fromString("00000000-0000-0000-0000-000000000301");
     private static final UUID HALVDAN = UUID.fromString("00000000-0000-0000-0000-000000000104");
@@ -42,17 +40,34 @@ class ArchitectureSliceIntegrationTest {
     private static final UUID FALLEN_ASSIGNMENT = UUID.fromString("00000000-0000-0000-0000-000000000312");
     private static final UUID SHIP = UUID.fromString("00000000-0000-0000-0000-000000000401");
 
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+    private static final String EXTERNAL_DATABASE_URL = System.getenv("TEST_DATABASE_URL");
+    static PostgreSQLContainer<?> postgres;
+
+    static {
+        if (EXTERNAL_DATABASE_URL == null || EXTERNAL_DATABASE_URL.isBlank()) {
+            postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+            postgres.start();
+        }
+    }
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("spring.datasource.url", () -> postgres == null
+                ? EXTERNAL_DATABASE_URL : postgres.getJdbcUrl());
+        registry.add("spring.datasource.username", () -> postgres == null
+                ? System.getenv().getOrDefault("TEST_DATABASE_USER", "drakkar") : postgres.getUsername());
+        registry.add("spring.datasource.password", () -> postgres == null
+                ? System.getenv().getOrDefault("TEST_DATABASE_PASSWORD", "drakkar") : postgres.getPassword());
         registry.add("spring.datasource.hikari.initialization-fail-timeout", () -> "30000");
         registry.add("spring.datasource.hikari.connection-timeout", () -> "30000");
         registry.add("drakkar.provisioning-key", () -> "test-provisioning-key");
+    }
+
+    @AfterAll
+    static void stopPostgres() {
+        if (postgres != null) {
+            postgres.stop();
+        }
     }
 
     @Autowired CrewService crew;
@@ -83,6 +98,23 @@ class ArchitectureSliceIntegrationTest {
     }
 
     @Test
+    void demoFixtureContainsSeveralExpeditionsAndHistoryFromEveryRole() {
+        assertThat(jdbc.queryForObject("""
+                select count(*) from expedition where settlement_id = ?
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from expedition
+                 where settlement_id = ? and status = 'COMPLETED'
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from audit_event where settlement_id = ?
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("""
+                select count(distinct actor_role) from audit_event where settlement_id = ?
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(4);
+    }
+
+    @Test
     void protectedHttpEndpointBindsPathAndReturnsDomainConflict() throws Exception {
         ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("halvdan", "shield-2026"));
         String payload = "{\"decision\":\"CONFIRMED\",\"expectedVersion\":0}";
@@ -108,13 +140,37 @@ class ArchitectureSliceIntegrationTest {
         mockMvc.perform(get("/api/demo/state")
                         .header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ship").doesNotExist())
+                .andExpect(jsonPath("$.ships").isEmpty())
                 .andExpect(jsonPath("$.stock").isEmpty())
                 .andExpect(jsonPath("$.availableUsers").isEmpty())
-                .andExpect(jsonPath("$.audit").isEmpty())
-                .andExpect(jsonPath("$.crew.length()").value(1))
+                .andExpect(jsonPath("$.crew.length()").value(2))
                 .andExpect(jsonPath("$.crew[0].userId").value(HALVDAN.toString()))
-                .andExpect(jsonPath("$.expeditions.length()").value(1));
+                .andExpect(jsonPath("$.expeditions.length()").value(2));
+    }
+
+    @Test
+    void shipbuilderSeesTheExpeditionBehindTheConstructionOrder() throws Exception {
+        ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("floki", "oak-2026"));
+
+        mockMvc.perform(get("/api/demo/state")
+                        .header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expeditions.length()").value(1))
+                .andExpect(jsonPath("$.expeditions[0].name").value("Экспедиция в Нортумбрию"))
+                .andExpect(jsonPath("$.ships.length()").value(1))
+                .andExpect(jsonPath("$.ships[0].expeditionName").value("Экспедиция в Нортумбрию"))
+                .andExpect(jsonPath("$.stock.length()").value(3));
+    }
+
+    @Test
+    void expeditionFleetContainsSeveralShipsAndCapacityIsDerivedFromTheirTypes() throws Exception {
+        ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026"));
+
+        mockMvc.perform(get("/api/demo/state")
+                        .header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expeditions[?(@.id == '00000000-0000-0000-0000-000000000201')].fleet.length()").value(2))
+                .andExpect(jsonPath("$.expeditions[?(@.id == '00000000-0000-0000-0000-000000000201')].readyCapacity").value(60));
     }
 
     @Test
@@ -152,6 +208,10 @@ class ArchitectureSliceIntegrationTest {
         UUID thorstein = UUID.fromString("00000000-0000-0000-0000-000000000105");
         UUID preparationExpedition = UUID.fromString("00000000-0000-0000-0000-000000000202");
         var request = new ApiModels.AddCrewRequest(thorstein, "разведчик");
+        int auditBefore = jdbc.queryForObject("""
+                select count(*) from audit_event
+                 where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID);
 
         UUID assignmentId = crew.add(jarl, preparationExpedition, request);
 
@@ -161,7 +221,7 @@ class ArchitectureSliceIntegrationTest {
         assertThat(jdbc.queryForObject("""
                 select count(*) from audit_event
                  where settlement_id = ? and event_type = 'CREW_MEMBER_ASSIGNED'
-                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(1);
+                """, Integer.class, DemoResetService.DEFAULT_SETTLEMENT_ID)).isEqualTo(auditBefore + 1);
 
         assertThatThrownBy(() -> crew.add(jarl, preparationExpedition, request))
                 .isInstanceOf(DomainException.class)
@@ -237,14 +297,15 @@ class ArchitectureSliceIntegrationTest {
 
     @Test
     void provisioningCreatesIsolatedSettlementAndItsFirstJarlAccount() throws Exception {
+        String username = "harald_" + UUID.randomUUID().toString().substring(0, 8);
         String payload = """
                 {
-                  "settlementName":"Бирка",
-                  "jarlDisplayName":"Эрик Биркский",
-                  "username":"erik",
-                  "password":"birka-pass-2026"
+                  "settlementName":"Хедебю",
+                  "jarlDisplayName":"Харальд Хедебюский",
+                  "username":"%s",
+                  "password":"hedeby-pass-2026"
                 }
-                """;
+                """.formatted(username);
 
         mockMvc.perform(post("/api/provisioning/settlements")
                         .contentType("application/json")
@@ -257,15 +318,15 @@ class ArchitectureSliceIntegrationTest {
                         .contentType("application/json")
                         .content(payload))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.settlementName").value("Бирка"))
-                .andExpect(jsonPath("$.username").value("erik"));
+                .andExpect(jsonPath("$.settlementName").value("Хедебю"))
+                .andExpect(jsonPath("$.username").value(username));
 
-        ApiModels.LoginResponse birkaLogin = auth.login(new ApiModels.LoginRequest("erik", "birka-pass-2026"));
-        String birkaAuthorization = "Bearer " + birkaLogin.token();
+        ApiModels.LoginResponse hedebyLogin = auth.login(new ApiModels.LoginRequest(username, "hedeby-pass-2026"));
+        String hedebyAuthorization = "Bearer " + hedebyLogin.token();
 
-        mockMvc.perform(get("/api/demo/state").header("Authorization", birkaAuthorization))
+        mockMvc.perform(get("/api/demo/state").header("Authorization", hedebyAuthorization))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.activeSettlementName").value("Бирка"))
+                .andExpect(jsonPath("$.activeSettlementName").value("Хедебю"))
                 .andExpect(jsonPath("$.expeditions").isEmpty())
                 .andExpect(jsonPath("$.stock.length()").value(6))
                 .andExpect(jsonPath("$.settlements").doesNotExist());
@@ -274,7 +335,7 @@ class ArchitectureSliceIntegrationTest {
                 {"loot":{"gold":1,"provisions":1,"thralls":0},"fallenAssignmentIds":[],"expectedVersion":0}
                 """;
         mockMvc.perform(post("/api/expeditions/{id}/finalization-preview", SAILING_EXPEDITION)
-                        .header("Authorization", birkaAuthorization)
+                        .header("Authorization", hedebyAuthorization)
                         .contentType("application/json")
                         .content(finalizePayload))
                 .andExpect(status().isNotFound());
@@ -284,7 +345,63 @@ class ArchitectureSliceIntegrationTest {
                         .header("Authorization", "Bearer " + kattegatLogin.token()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.activeSettlementName").value("Каттегат"))
-                .andExpect(jsonPath("$.expeditions.length()").value(2));
+                .andExpect(jsonPath("$.expeditions.length()").value(4));
+    }
+
+    @Test
+    void seededBirkaAccountSeesOnlyItsOwnExpeditionAndWarehouse() throws Exception {
+        ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest("erik", "birka-2026"));
+
+        mockMvc.perform(get("/api/demo/state")
+                        .header("Authorization", "Bearer " + login.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeSettlementName").value("Бирка"))
+                .andExpect(jsonPath("$.expeditions.length()").value(1))
+                .andExpect(jsonPath("$.expeditions[0].name").value("Поход к Готланду"))
+                .andExpect(jsonPath("$.ships.length()").value(1))
+                .andExpect(jsonPath("$.stock[?(@.resource == 'WOOD')].quantity").value(45));
+    }
+
+    @Test
+    void jarlRequestsShipFromCatalogAndRecipeIsSnapshottedForTheExpedition() {
+        AuthenticatedUser jarl = login("ragnar", "raven-2026");
+        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+
+        UUID requestId = shipyard.requestShip(
+                jarl,
+                preparation,
+                new ApiModels.RequestShipRequest("Скат", "KNOERR"));
+
+        UUID shipId = jdbc.queryForObject(
+                "select ship_id from ship_build_request where id = ?", UUID.class, requestId);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from expedition_ship where expedition_id = ? and ship_id = ?",
+                Integer.class, preparation, shipId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select sum(quantity) from ship_stage_requirement where ship_id = ?",
+                Integer.class, shipId)).isEqualTo(87);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from audit_event where aggregate_id = ? and event_type = 'SHIP_BUILD_REQUESTED'",
+                Integer.class, preparation)).isEqualTo(1);
+    }
+
+    @Test
+    void jarlAddsAFreeReadyShipToAnExpeditionFleet() {
+        AuthenticatedUser jarl = login("ragnar", "raven-2026");
+        UUID preparation = UUID.fromString("00000000-0000-0000-0000-000000000202");
+        UUID freeShip = UUID.fromString("00000000-0000-0000-0000-000000000402");
+
+        shipyard.assignReadyShip(jarl, preparation, freeShip);
+
+        assertThat(jdbc.queryForObject(
+                "select count(*) from expedition_ship where expedition_id = ? and ship_id = ?",
+                Integer.class, preparation, freeShip)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from audit_event where aggregate_id = ? and event_type = 'SHIP_ASSIGNED'",
+                Integer.class, preparation)).isEqualTo(1);
+        assertThatThrownBy(() -> shipyard.assignReadyShip(jarl, preparation, freeShip))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("уже назначен в активный поход");
     }
 
     private AuthenticatedUser login(String username, String password) {

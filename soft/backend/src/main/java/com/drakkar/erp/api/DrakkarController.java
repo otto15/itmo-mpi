@@ -125,6 +125,31 @@ public class DrakkarController {
         return new ApiModels.MessageResponse("SHIP_STAGE_COMPLETED", "Этап завершён, ресурсы списаны атомарно");
     }
 
+    @PostMapping("/expeditions/{expeditionId}/ships")
+    public ApiModels.MessageResponse assignShip(
+            @PathVariable UUID expeditionId,
+            @Valid @RequestBody ApiModels.AssignShipRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        shipyard.assignReadyShip(actor, expeditionId, request.shipId());
+        return new ApiModels.MessageResponse("SHIP_ASSIGNED", "Корабль добавлен во флот похода");
+    }
+
+    @PostMapping("/expeditions/{expeditionId}/ship-requests")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiModels.MessageResponse requestShip(
+            @PathVariable UUID expeditionId,
+            @Valid @RequestBody ApiModels.RequestShipRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        AuthenticatedUser actor = current(servletRequest);
+        RoleGuard.require(actor.role(), Role.JARL);
+        UUID requestId = shipyard.requestShip(actor, expeditionId, request);
+        return new ApiModels.MessageResponse("SHIP_BUILD_REQUESTED", requestId.toString());
+    }
+
     @PostMapping("/ships/{shipId}/bless")
     public ApiModels.MessageResponse bless(
             @PathVariable UUID shipId,

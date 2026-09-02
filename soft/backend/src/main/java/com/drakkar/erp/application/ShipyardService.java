@@ -18,6 +18,9 @@ public class ShipyardService {
     private record Requirement(String resource, int required, int available) {
     }
 
+    private record ShipType(String code, int capacity) {
+    }
+
     private final JdbcTemplate jdbc;
     private final AuditWriter audit;
 
@@ -82,8 +85,103 @@ public class ShipyardService {
                 update ship set stage = stage + 1, version = version + 1
                  where id = ? and settlement_id = ?
                 """, shipId, actor.settlementId());
+        if (ship.stage() == 3) {
+            jdbc.update("""
+                    update ship_build_request set status = 'READY'
+                     where ship_id = ? and settlement_id = ? and status = 'IN_CONSTRUCTION'
+                    """, shipId, actor.settlementId());
+        }
         audit.append(actor.settlementId(), actor.role(), "SHIP_STAGE_COMPLETED", "SHIP", shipId,
                 "{\"completedStage\":" + ship.stage() + ",\"resourcesWrittenOff\":" + requirements.size() + "}");
+    }
+
+    @Transactional
+    public void assignReadyShip(AuthenticatedUser actor, UUID expeditionId, UUID shipId) {
+        requirePreparation(actor.settlementId(), expeditionId);
+        Integer ready = jdbc.query("""
+                select 1 from ship
+                 where id = ? and settlement_id = ? and stage = 4
+                   for update
+                """, rs -> rs.next() ? 1 : null, shipId, actor.settlementId());
+        if (ready == null) {
+            throw DomainException.conflict("SHIP_NOT_READY", "Выбранный корабль ещё не готов");
+        }
+        UUID occupiedBy = jdbc.query("""
+                select e.id
+                  from expedition_ship es
+                  join expedition e on e.id = es.expedition_id
+                 where es.ship_id = ? and e.status in ('PREPARATION', 'SAILING')
+                 limit 1
+                """, rs -> rs.next() ? rs.getObject("id", UUID.class) : null, shipId);
+        if (occupiedBy != null) {
+            throw DomainException.conflict("SHIP_ALREADY_ASSIGNED", "Корабль уже назначен в активный поход");
+        }
+        jdbc.update("""
+                insert into expedition_ship(expedition_id, ship_id) values (?, ?)
+                """, expeditionId, shipId);
+        audit.append(actor.settlementId(), actor.role(), "SHIP_ASSIGNED", "EXPEDITION", expeditionId,
+                "{\"shipId\":\"" + shipId + "\"}");
+    }
+
+    @Transactional
+    public UUID requestShip(
+            AuthenticatedUser actor,
+            UUID expeditionId,
+            ApiModels.RequestShipRequest request
+    ) {
+        requirePreparation(actor.settlementId(), expeditionId);
+        Integer shortage = jdbc.queryForObject("""
+                select e.required_capacity - coalesce(sum(st.capacity), 0)::integer
+                  from expedition e
+                  left join expedition_ship es on es.expedition_id = e.id
+                  left join ship s on s.id = es.ship_id and s.settlement_id = e.settlement_id
+                  left join ship_type st on st.code = s.ship_type_code
+                 where e.id = ? and e.settlement_id = ?
+                 group by e.required_capacity
+                """, Integer.class, expeditionId, actor.settlementId());
+        if (shortage == null || shortage <= 0) {
+            throw DomainException.conflict(
+                    "FLEET_CAPACITY_SUFFICIENT",
+                    "Плановая вместимость флота уже набрана");
+        }
+        String typeCode = request.shipTypeCode().trim().toUpperCase(java.util.Locale.ROOT);
+        ShipType type = jdbc.query("""
+                select code, capacity from ship_type where code = ?
+                """, rs -> rs.next() ? new ShipType(rs.getString("code"), rs.getInt("capacity")) : null, typeCode);
+        if (type == null) {
+            throw DomainException.notFound("Тип корабля");
+        }
+        String name = request.shipName().trim();
+        Integer duplicateName = jdbc.query("""
+                select 1 from ship where settlement_id = ? and lower(name) = lower(?)
+                """, rs -> rs.next() ? 1 : null, actor.settlementId(), name);
+        if (duplicateName != null) {
+            throw DomainException.conflict("SHIP_NAME_ALREADY_EXISTS", "Корабль с таким именем уже существует");
+        }
+
+        UUID shipId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        jdbc.update("""
+                insert into ship(id, settlement_id, name, ship_type_code, stage, blessed)
+                values (?, ?, ?, ?, 0, false)
+                """, shipId, actor.settlementId(), name, type.code());
+        jdbc.update("""
+                insert into ship_stage_requirement(ship_id, stage, resource, quantity)
+                select ?, stage, resource, quantity
+                  from ship_type_requirement where ship_type_code = ?
+                """, shipId, type.code());
+        jdbc.update("""
+                insert into expedition_ship(expedition_id, ship_id) values (?, ?)
+                """, expeditionId, shipId);
+        jdbc.update("""
+                insert into ship_build_request(
+                    id, settlement_id, expedition_id, ship_type_code, ship_id, requested_by, status
+                ) values (?, ?, ?, ?, ?, ?, 'IN_CONSTRUCTION')
+                """, requestId, actor.settlementId(), expeditionId, type.code(), shipId, actor.id());
+        audit.append(actor.settlementId(), actor.role(), "SHIP_BUILD_REQUESTED", "EXPEDITION", expeditionId,
+                "{\"requestId\":\"" + requestId + "\",\"shipName\":\""
+                        + escapeJson(name) + "\",\"capacity\":" + type.capacity() + "}");
+        return requestId;
     }
 
     @Transactional
@@ -97,5 +195,25 @@ public class ShipyardService {
                     "Благословение доступно перед финальным этапом");
         }
         audit.append(actor.settlementId(), actor.role(), "SHIP_BLESSED", "SHIP", shipId, "{}");
+    }
+
+    private void requirePreparation(UUID settlementId, UUID expeditionId) {
+        String status = jdbc.query("""
+                select status from expedition
+                 where id = ? and settlement_id = ?
+                   for update
+                """, rs -> rs.next() ? rs.getString("status") : null, expeditionId, settlementId);
+        if (status == null) {
+            throw DomainException.notFound("Поход");
+        }
+        if (!"PREPARATION".equals(status)) {
+            throw DomainException.conflict(
+                    "EXPEDITION_NOT_IN_PREPARATION",
+                    "Флот можно менять только на этапе подготовки");
+        }
+    }
+
+    private String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

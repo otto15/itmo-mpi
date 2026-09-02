@@ -1,6 +1,6 @@
 # Схема базы данных Drakkar ERP Soft
 
-База данных работает на PostgreSQL 16. Flyway создаёт и обновляет схему автоматически при запуске приложения. Исполняемые версии схемы находятся в каталоге [`db/migration`](../backend/src/main/resources/db/migration): `V1` создаёт исходный срез, `V2` добавляет поселения и изоляцию данных, `V3` закрепляет каждый аккаунт ровно за одним поселением.
+База данных работает на PostgreSQL 16. Flyway создаёт и обновляет схему автоматически при запуске приложения. Исполняемые версии находятся в каталоге [`db/migration`](../backend/src/main/resources/db/migration): `V1` создаёт исходный срез, `V2` добавляет поселения, `V3` закрепляет аккаунт за одним поселением, `V4` расширяет демо-данные, а `V5` добавляет флот, рецепты кораблей, заказы верфи и второе демонстрационное поселение.
 
 ## ER-схема
 
@@ -18,6 +18,12 @@ erDiagram
     APP_USER ||--o{ CREW_ASSIGNMENT : "участвует"
     EXPEDITION ||--o{ CREW_ASSIGNMENT : "включает команду"
     EXPEDITION ||--o{ WERGILD_ALLOCATION : "создаёт выплаты"
+    EXPEDITION ||--o{ EXPEDITION_SHIP : "получает корабли"
+    SHIP ||--o{ EXPEDITION_SHIP : "участвует в походах"
+    EXPEDITION ||--o{ SHIP_BUILD_REQUEST : "запрашивает строительство"
+    SHIP ||--o| SHIP_BUILD_REQUEST : "строится по заказу"
+    SHIP_TYPE ||--o{ SHIP : "определяет вместимость"
+    SHIP_TYPE ||--o{ SHIP_TYPE_REQUIREMENT : "имеет рецепт"
     SHIP ||--o{ SHIP_STAGE_REQUIREMENT : "требует ресурсы"
     WAREHOUSE_STOCK ||..o{ SHIP_STAGE_REQUIREMENT : "связан по поселению и ресурсу"
 
@@ -63,7 +69,7 @@ erDiagram
         varchar target
         varchar status
         date planned_departure
-        varchar ship_name
+        integer required_capacity
         integer version
         timestamptz finalized_at
         integer loot_gold
@@ -92,6 +98,7 @@ erDiagram
         uuid id PK
         uuid settlement_id FK
         varchar name
+        varchar ship_type_code FK
         integer stage
         boolean blessed
         integer version
@@ -102,6 +109,36 @@ erDiagram
         integer stage PK
         varchar resource PK
         integer quantity
+    }
+
+    SHIP_TYPE {
+        varchar code PK
+        varchar name
+        integer capacity
+    }
+
+    SHIP_TYPE_REQUIREMENT {
+        varchar ship_type_code PK, FK
+        integer stage PK
+        varchar resource PK
+        integer quantity
+    }
+
+    EXPEDITION_SHIP {
+        uuid expedition_id PK, FK
+        uuid ship_id PK, FK
+        timestamptz assigned_at
+    }
+
+    SHIP_BUILD_REQUEST {
+        uuid id PK
+        uuid settlement_id FK
+        uuid expedition_id FK
+        varchar ship_type_code FK
+        uuid ship_id FK, UK
+        uuid requested_by FK
+        varchar status
+        timestamptz created_at
     }
 
     WERGILD_ALLOCATION {
@@ -132,7 +169,7 @@ erDiagram
 
 При успешном входе сервер находит членство по логину и автоматически записывает его `settlement_id` в `user_session.active_settlement_id`. Пользователь не выбирает поселение и не получает список других пространств.
 
-Походы, склад, корабли и аудит содержат `settlement_id`. Состав команды и распределение Вергельда наследуют принадлежность через `expedition`, требования этапов — через `ship`. Все прикладные запросы получают идентификатор поселения из проверенной серверной сессии и используют его в условиях чтения и изменения. Идентификатор не принимается из тела бизнес-запроса.
+Походы, склад, корабли, заказы и аудит содержат `settlement_id`. Состав команды, флот и распределение Вергельда наследуют принадлежность через `expedition`, требования этапов — через `ship`. Все прикладные запросы получают идентификатор поселения из проверенной серверной сессии и используют его в условиях чтения и изменения. Идентификатор не принимается из тела бизнес-запроса.
 
 Склад имеет составной первичный ключ `(settlement_id, resource)`: одинаковый ресурс существует отдельно у каждого клиента. Защищённая операция подключения поселения атомарно добавляет пространство, нового пользователя, его учётную запись с ролью ярла и пустые складские позиции.
 
@@ -142,17 +179,18 @@ erDiagram
 |---|---|---|
 | Поселения | `settlement`, `settlement_membership` | клиентские пространства, пользователи и роли внутри них |
 | Авторизация | `app_user`, `user_account`, `user_session` | пользователь, данные входа, автоматически назначенное поселение и серверные сессии |
-| Походы | `expedition`, `crew_assignment`, `wergild_allocation` | план похода, состав команды, добыча и распределение Вергельда |
-| Верфь | `ship`, `ship_stage_requirement`, `warehouse_stock` | состояние корабля, требования этапов и отдельный склад поселения |
-| История | `audit_event` | изолированный журнал ключевых действий |
+| Походы | `expedition`, `crew_assignment`, `expedition_ship`, `wergild_allocation` | план похода, команда, флот, добыча и Вергельд |
+| Верфь | `ship_type`, `ship_type_requirement`, `ship_build_request`, `ship`, `ship_stage_requirement` | каталог типов, рецепты, заказы и состояние строительства |
+| Склад | `warehouse_stock` | отдельные остатки каждого поселения |
+| История | `audit_event` | события, которые API прикрепляет к карточке соответствующего похода |
 
 Служебную таблицу `flyway_schema_history` создаёт Flyway: в ней хранится список применённых миграций.
 
 `audit_event` намеренно не имеет внешнего ключа на конкретную бизнес-таблицу: поля `aggregate_type` и `aggregate_id` позволяют хранить историю объектов разных типов. Поле `settlement_id` ограничивает журнал текущим клиентом.
 
-Связь между `ship_stage_requirement.resource` и `warehouse_stock.resource` логическая. При завершении этапа сервис выбирает склад активного поселения, блокирует нужные строки, проверяет остатки и в одной транзакции списывает ресурсы и меняет этап корабля.
+`ship_type_requirement` — нормативный рецепт типа корабля. При запросе строительства рецепт копируется в `ship_stage_requirement`, поэтому уже созданный заказ не меняется при будущей корректировке справочника. При завершении этапа сервис выбирает склад активного поселения, блокирует нужные строки и в одной транзакции списывает ресурсы, меняет этап и добавляет аудит.
 
-Поля `expedition.ship_name` и `wergild_allocation.recipient` хранят снимок текста на момент операции. После утверждения итогов триггер `expedition_results_immutable` запрещает изменять статус, добычу и дату фиксации даже прямым SQL-запросом.
+`expedition_ship` реализует связь многие-ко-многим: один поход получает несколько кораблей, а готовый корабль после завершения старого похода может использоваться снова. Готовая вместимость считается только по кораблям на этапе `4`, плановая — по всем назначенным кораблям. После утверждения итогов триггер `expedition_results_immutable` запрещает изменять статус, добычу и дату фиксации даже прямым SQL-запросом.
 
 ## Как посмотреть работающую базу
 
@@ -168,6 +206,8 @@ docker compose exec postgres psql -U drakkar -d drakkar -c '\dt'
 ```bash
 docker compose exec postgres psql -U drakkar -d drakkar -c '\d settlement'
 docker compose exec postgres psql -U drakkar -d drakkar -c '\d expedition'
+docker compose exec postgres psql -U drakkar -d drakkar -c '\d expedition_ship'
+docker compose exec postgres psql -U drakkar -d drakkar -c '\d ship_build_request'
 ```
 
 Проверка количества походов по поселениям:

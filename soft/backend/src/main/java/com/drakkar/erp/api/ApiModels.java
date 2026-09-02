@@ -20,10 +20,10 @@ public final class ApiModels {
             List<ExpeditionView> expeditions,
             List<CrewView> crew,
             List<UserView> availableUsers,
-            ShipView ship,
+            List<ShipView> ships,
+            List<ShipTypeView> shipTypes,
             List<StockView> stock,
             List<AllocationView> allocations,
-            List<AuditView> audit,
             String activeSettlementName,
             boolean demoResetAvailable
     ) {
@@ -35,7 +35,11 @@ public final class ApiModels {
             String target,
             String status,
             LocalDate plannedDeparture,
-            String shipName,
+            int requiredCapacity,
+            int readyCapacity,
+            int plannedCapacity,
+            List<FleetShipView> fleet,
+            List<AuditView> audit,
             int version,
             boolean immutable,
             LootRequest loot
@@ -60,13 +64,42 @@ public final class ApiModels {
     public record ShipView(
             UUID id,
             String name,
+            String typeCode,
+            String typeName,
+            int capacity,
             int stage,
             String stageName,
             int progress,
             boolean blessed,
             int version,
+            boolean available,
+            UUID expeditionId,
+            String expeditionName,
+            String requestStatus,
             List<RequirementView> requirements
     ) {
+    }
+
+    public record FleetShipView(
+            UUID id,
+            String name,
+            String typeName,
+            int capacity,
+            int stage,
+            boolean ready,
+            String requestStatus
+    ) {
+    }
+
+    public record ShipTypeView(
+            String code,
+            String name,
+            int capacity,
+            List<RecipeResourceView> recipe
+    ) {
+    }
+
+    public record RecipeResourceView(String resource, int quantity) {
     }
 
     public record RequirementView(String resource, int quantity, int available) {
@@ -109,6 +142,15 @@ public final class ApiModels {
     }
 
     public record CompleteStageRequest(@Min(0) int expectedVersion) {
+    }
+
+    public record AssignShipRequest(@NotNull UUID shipId) {
+    }
+
+    public record RequestShipRequest(
+            @NotBlank @Size(max = 120) String shipName,
+            @NotBlank String shipTypeCode
+    ) {
     }
 
     public record FinalizeRequest(

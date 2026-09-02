@@ -16,7 +16,11 @@ export type Expedition = {
   target: string
   status: 'PREPARATION' | 'SAILING' | 'COMPLETED' | 'CANCELLED'
   plannedDeparture: string
-  shipName: string
+  requiredCapacity: number
+  readyCapacity: number
+  plannedCapacity: number
+  fleet: FleetShip[]
+  audit: Audit[]
   version: number
   immutable: boolean
   loot?: Loot
@@ -35,15 +39,37 @@ export type Crew = {
 
 export type User = { id: string; displayName: string; systemRole: string }
 export type Requirement = { resource: string; quantity: number; available: number }
+export type FleetShip = {
+  id: string
+  name: string
+  typeName: string
+  capacity: number
+  stage: number
+  ready: boolean
+  requestStatus: string
+}
 export type Ship = {
   id: string
   name: string
+  typeCode: string
+  typeName: string
+  capacity: number
   stage: number
   stageName: string
   progress: number
   blessed: boolean
   version: number
+  available: boolean
+  expeditionId?: string | null
+  expeditionName?: string | null
+  requestStatus?: string | null
   requirements: Requirement[]
+}
+export type ShipType = {
+  code: string
+  name: string
+  capacity: number
+  recipe: { resource: string; quantity: number }[]
 }
 export type Stock = { resource: string; quantity: number; version: number }
 export type Allocation = { recipient: string; category: string; loot: Loot }
@@ -61,10 +87,10 @@ export type DemoState = {
   expeditions: Expedition[]
   crew: Crew[]
   availableUsers: User[]
-  ship?: Ship | null
+  ships: Ship[]
+  shipTypes: ShipType[]
   stock: Stock[]
   allocations: Allocation[]
-  audit: Audit[]
   activeSettlementName: string
   demoResetAvailable: boolean
 }

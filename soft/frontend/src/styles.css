@@ -84,6 +84,18 @@ main { grid-column: 2; min-width: 0; }
 .text-button { margin-top: 17px; padding: 0; border: 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
 .text-button:hover { color: var(--accent); }
 
+.expeditions-panel { min-height: 520px; }
+.expeditions-head, .audit-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.expedition-counters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.expedition-counters span { padding: 7px 10px; border-radius: 20px; color: var(--muted); background: #f1f3f1; font-size: 11px; }
+.expedition-counters b { margin-right: 3px; color: #33413c; }
+.expedition-table { border-top: 1px solid var(--line); }
+.expedition-row { display: grid; grid-template-columns: 1.65fr 1.45fr 1fr 1.05fr .8fr; align-items: center; gap: 16px; min-height: 72px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.expedition-row-head { min-height: 40px; padding: 0; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .35px; }
+.expedition-name b, .expedition-name small { display: block; }
+.expedition-name b { font-size: 13px; }
+.expedition-name small { margin-top: 5px; color: var(--accent); font-size: 10px; }
+
 .module-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .7fr); gap: 14px; }
 .wide, .side-panel { min-height: 520px; }
 .table { border-top: 1px solid var(--line); }
@@ -178,8 +190,14 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .allocations code { color: #8d5d26; font-size: 10px; }
 
 .audit-panel { min-height: 520px; }
+.audit-role-summary { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.role-badge { padding: 6px 9px; border-radius: 20px; color: #53605c; background: #f0f2f0; font-size: 10px; }
+.role-badge.jarl { color: #8c5b23; background: #faf1e5; }
+.role-badge.warrior { color: #486b7d; background: #eaf1f4; }
+.role-badge.shipbuilder { color: #4f695a; background: #ebf4ee; }
+.role-badge.priest { color: #74577d; background: #f2ebf4; }
 .audit-list { max-width: 820px; }
-.audit-list > div { display: grid; grid-template-columns: 62px 10px 1fr; align-items: center; gap: 12px; min-height: 62px; border-bottom: 1px solid var(--line); }
+.audit-list > div { display: grid; grid-template-columns: 112px 10px 1fr; align-items: center; gap: 12px; min-height: 62px; border-bottom: 1px solid var(--line); }
 .audit-list time { color: var(--muted); font-size: 12px; }
 .audit-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .audit-list b, .audit-list small { display: block; }
@@ -204,11 +222,104 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .demo-hint { display: block; margin-top: 16px; color: var(--muted); font-size: 11px; text-align: center; }
 .login-panel .notice { position: static; max-width: none; margin-top: 12px; box-shadow: none; }
 
+.demo-accounts { display: grid; gap: 4px; margin-top: 16px; color: var(--muted); font-size: 11px; text-align: center; }
+.overview-list { min-height: 320px; }
+.list-detail { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.compact-list-panel { padding: 20px; }
+.compact-list-panel .panel-head { margin-bottom: 14px; }
+.expedition-list { display: grid; gap: 7px; }
+.expedition-list-item { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; color: inherit; background: #fff; text-align: left; cursor: pointer; }
+.expedition-list-item:hover { border-color: #bdc7c2; background: #fafbfa; }
+.expedition-list-item.selected { border-color: #d9b27f; background: #fdf8f2; box-shadow: inset 3px 0 0 var(--accent); }
+.expedition-list-item > span:first-child { min-width: 0; }
+.expedition-list-item b, .expedition-list-item small { display: block; }
+.expedition-list-item b { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.expedition-list-item small { margin-top: 5px; color: var(--muted); font-size: 10px; }
+.expedition-list-item > span:last-child { display: grid; justify-items: end; }
+.expedition-detail-panel, .history-card, .ship-panel { min-height: 520px; }
+.detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.detail-heading > div { min-width: 0; }
+.detail-heading > div > span { color: var(--accent); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+.detail-heading h2 { margin: 6px 0 5px; font-size: 21px; line-height: 1.3; }
+.detail-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.capacity-block { margin: 19px 0 22px; padding: 16px; border: 1px solid #dbe4df; border-radius: 8px; background: #f7faf8; }
+.capacity-block > div:first-child { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.capacity-block > div:first-child span { color: var(--muted); }
+.capacity-block > div:first-child b { color: var(--green); }
+.capacity-bar { height: 6px; margin: 11px 0 8px; overflow: hidden; border-radius: 4px; background: #e2e9e5; }
+.capacity-bar i { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.capacity-block > small { color: var(--muted); font-size: 10px; }
+.fleet-list { display: grid; gap: 7px; }
+.fleet-list > div { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 58px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; }
+.fleet-list b, .fleet-list small { display: block; }
+.fleet-list b { font-size: 12px; }
+.fleet-list small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.ship-state { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-size: 10px; font-weight: 700; }
+.ship-state.ready { color: var(--green); background: #e7f2eb; }
+.ship-state.building { color: var(--accent); background: #faf0e3; }
+.fleet-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+.action-box { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
+.action-box > b, .action-box > small { display: block; }
+.action-box > b { margin-bottom: 10px; font-size: 11px; }
+.action-box > small { color: var(--muted); font-size: 10px; }
+.inline-action { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.request-fields { display: grid; grid-template-columns: 1.1fr .9fr; gap: 7px; }
+.action-box input, .action-box select, .inline-action select { height: 38px; font-size: 11px; }
+.action-box .primary { width: 100%; min-height: 38px; margin-top: 9px; font-size: 11px; }
+.recipe-line { min-height: 28px; margin-top: 7px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.expedition-audit { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
+.expedition-audit .audit-list { max-width: none; }
+.expedition-audit .audit-list > div { grid-template-columns: 94px 8px 1fr; min-height: 52px; }
+.expedition-audit .audit-list time { font-size: 10px; }
+.expedition-audit .audit-list b { font-size: 11px; }
+.expedition-audit .audit-list small { font-size: 9px; }
+.status.ready { color: var(--green); background: #ebf4ee; }
+.status.in_construction { color: var(--accent); background: #faf1e5; }
+.module-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.module-title-row select { width: min(100%, 260px); }
+.ship-order-list { display: grid; gap: 7px; }
+.ship-order-list button { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; width: 100%; padding: 13px; border: 1px solid var(--line); border-radius: 8px; background: #fff; text-align: left; cursor: pointer; }
+.ship-order-list button.selected { border-color: #d9b27f; background: #fdf8f2; box-shadow: inset 3px 0 0 var(--accent); }
+.ship-order-list b, .ship-order-list small { display: block; }
+.ship-order-list b { font-size: 12px; }
+.ship-order-list small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.ship-order-list button > span:last-child { display: grid; justify-items: end; }
+.blessing-inline { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 18px; padding: 13px; border: 1px solid #e5d2b9; border-radius: 8px; background: #fcf7f0; }
+.blessing-inline .seal { width: 48px; height: 48px; margin: 0; font-size: 21px; }
+.blessing-inline b, .blessing-inline small { display: block; }
+.blessing-inline b { font-size: 12px; }
+.blessing-inline small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.resource-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr); gap: 14px; }
+.stock-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stock-grid > div { padding: 17px; border: 1px solid var(--line); border-radius: 8px; }
+.stock-grid span, .stock-grid b, .stock-grid small { display: block; }
+.stock-grid span { color: var(--muted); font-size: 11px; }
+.stock-grid b { margin: 8px 0 2px; color: var(--green); font-size: 24px; }
+.stock-grid small { color: var(--muted); font-size: 9px; }
+.recipe-cards { display: grid; gap: 9px; }
+.recipe-cards > div { padding: 15px; border: 1px solid var(--line); border-radius: 8px; }
+.recipe-cards > div > div { display: flex; justify-content: space-between; gap: 10px; }
+.recipe-cards > div > div b { font-size: 13px; }
+.recipe-cards > div > div span { color: var(--blue); font-size: 11px; }
+.recipe-cards ul { display: grid; gap: 5px; margin: 12px 0 0; padding: 0; list-style: none; }
+.recipe-cards li { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+.recipe-cards li b { color: #34423d; }
+.history-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 19px 0; }
+.history-summary > div { padding: 13px; border: 1px solid var(--line); border-radius: 7px; }
+.history-summary span, .history-summary b { display: block; }
+.history-summary span { color: var(--muted); font-size: 9px; }
+.history-summary b { margin-top: 5px; color: var(--accent); font-size: 19px; }
+.fleet-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.fleet-chips > span { padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.fleet-chips small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+
 @media (max-width: 1120px) {
   .topbar { align-items: flex-start; }
   .user-context { align-items: flex-end; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .module-grid { grid-template-columns: 1fr; }
+  .list-detail, .resource-layout { grid-template-columns: 1fr; }
+  .compact-list-panel { min-height: auto; }
   .wide, .side-panel { min-height: auto; }
 }
 
@@ -216,7 +327,7 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .app-shell { display: block; }
   .sidebar { position: static; width: 100%; padding: 16px; }
   .brand { padding: 0 4px 14px; }
-  .sidebar nav { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow-x: auto; }
+  .sidebar nav { grid-template-columns: repeat(7, minmax(78px, 1fr)); overflow-x: auto; }
   .nav-item { justify-content: center; padding: 10px 7px; font-size: 11px; }
   .nav-item > span { display: none; }
   .logout-button { position: absolute; top: 18px; right: 16px; width: auto; padding: 8px 11px; }
@@ -226,7 +337,19 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .user-context { width: 100%; justify-content: space-between; align-items: center; }
   .content { padding: 16px; }
   .metric-grid, .two-column, .loot-grid, .casualty-list, .button-row { grid-template-columns: 1fr; }
+  .fleet-actions, .stock-grid { grid-template-columns: 1fr; }
+  .history-summary { grid-template-columns: repeat(2, 1fr); }
+  .module-title-row { display: block; }
+  .module-title-row select { width: 100%; margin-bottom: 16px; }
+  .blessing-inline { grid-template-columns: 48px 1fr; }
+  .blessing-inline .primary { grid-column: 1 / -1; }
   .inline-form { grid-template-columns: 1fr; }
+  .expeditions-head, .audit-head { display: block; }
+  .expedition-counters, .audit-role-summary { justify-content: flex-start; margin-bottom: 16px; }
+  .expedition-row { grid-template-columns: 1fr auto; gap: 7px 12px; padding: 14px 0; }
+  .expedition-row > span:nth-child(2), .expedition-row > span:nth-child(3) { display: none; }
+  .expedition-row > span:nth-child(4) { color: var(--muted); }
+  .expedition-row-head { display: none; }
   .facts { gap: 10px; }
   .tr { grid-template-columns: 1.2fr 1fr 1fr; font-size: 11px; }
   .panel { padding: 18px; }
