@@ -72,7 +72,7 @@ public class AuthService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(rawToken);
     }
 
-    private String tokenHash(String token) {
+    public String tokenHash(String token) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(token.getBytes(StandardCharsets.UTF_8));

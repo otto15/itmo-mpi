@@ -1,5 +1,6 @@
 package com.drakkar.erp.service;
 
+import com.drakkar.erp.dao.PreparationDao;
 import com.drakkar.erp.dto.ApiModels;
 import com.drakkar.erp.dao.AuditDao;
 import com.drakkar.erp.dao.ShipyardDao;
@@ -18,10 +19,12 @@ import java.util.Locale;
 public class ShipyardService {
     private final ShipyardDao dao;
     private final AuditDao audit;
+    private final PreparationDao preparation;
 
-    public ShipyardService(ShipyardDao dao, AuditDao audit) {
+    public ShipyardService(ShipyardDao dao, AuditDao audit, PreparationDao preparation) {
         this.dao = dao;
         this.audit = audit;
+        this.preparation = preparation;
     }
 
     @Transactional
@@ -30,6 +33,7 @@ public class ShipyardService {
             Long shipId,
             ApiModels.CompleteStageRequest request
     ) {
+        preparation.lockSettlement(actor.settlementId());
         ShipState ship = dao.findShipForUpdate(actor.settlementId(), shipId);
         if (ship == null) {
             throw DomainException.notFound("Корабль");
@@ -52,6 +56,10 @@ public class ShipyardService {
 
         List<ShipRequirement> requirements = dao.lockStageRequirements(
                 actor.settlementId(), shipId, ship.stage());
+        var at = preparation.databaseTime();
+        requirements = requirements.stream().map(item -> new ShipRequirement(item.resource(), item.required(),
+                preparation.available(actor.settlementId(), item.resource(), at)
+                        + preparation.ownStageReserved(shipId, ship.stage(), item.resource(), at))).toList();
         for (ShipRequirement requirement : requirements) {
             if (!requirement.isSatisfied()) {
                 throw DomainException.conflict(
@@ -63,18 +71,20 @@ public class ShipyardService {
         }
 
         requirements.forEach(requirement -> dao.deductStock(actor.settlementId(), requirement));
+        preparation.consumeStage(shipId, ship.stage(), at);
         dao.advanceShip(actor.settlementId(), shipId);
         if (ship.stage() == 3) {
             dao.markBuildRequestReady(actor.settlementId(), shipId);
         }
         audit.append(
-                actor.settlementId(), actor.role(), "SHIP_STAGE_COMPLETED", "SHIP", shipId,
+                actor, "SHIP_STAGE_COMPLETED", "SHIP", shipId,
                 "{\"completedStage\":" + ship.stage()
                         + ",\"resourcesWrittenOff\":" + requirements.size() + "}");
     }
 
     @Transactional
     public void assignReadyShip(AuthenticatedUser actor, Long expeditionId, Long shipId) {
+        preparation.lockSettlement(actor.settlementId());
         requirePreparation(actor.settlementId(), expeditionId);
         if (!dao.lockReadyShip(actor.settlementId(), shipId)) {
             throw DomainException.conflict("SHIP_NOT_READY", "Выбранный корабль ещё не готов");
@@ -85,13 +95,15 @@ public class ShipyardService {
                     "Корабль уже назначен в активный поход");
         }
         dao.addShipToExpedition(expeditionId, shipId);
+        preparation.bumpVersion(expeditionId);
         audit.append(
-                actor.settlementId(), actor.role(), "SHIP_ASSIGNED", "EXPEDITION", expeditionId,
+                actor, "SHIP_ASSIGNED", "EXPEDITION", expeditionId,
                 "{\"shipId\":" + shipId + "}");
     }
 
     @Transactional
     public void removeShip(AuthenticatedUser actor, Long expeditionId, Long shipId) {
+        preparation.lockSettlement(actor.settlementId());
         requirePreparation(actor.settlementId(), expeditionId);
         if (!dao.lockAssignedShip(actor.settlementId(), expeditionId, shipId)) {
             throw DomainException.notFound("Корабль во флоте похода");
@@ -99,8 +111,9 @@ public class ShipyardService {
 
         dao.removeShipFromExpedition(expeditionId, shipId);
         dao.detachBuildRequest(actor.settlementId(), expeditionId, shipId);
+        preparation.bumpVersion(expeditionId);
         audit.append(
-                actor.settlementId(), actor.role(), "SHIP_REMOVED", "EXPEDITION", expeditionId,
+                actor, "SHIP_REMOVED", "EXPEDITION", expeditionId,
                 "{\"shipId\":" + shipId + "}");
     }
 
@@ -110,6 +123,7 @@ public class ShipyardService {
             Long expeditionId,
             ApiModels.RequestShipRequest request
     ) {
+        preparation.lockSettlement(actor.settlementId());
         requirePreparation(actor.settlementId(), expeditionId);
         if (dao.fleetSeatShortage(actor.settlementId(), expeditionId) <= 0) {
             throw DomainException.conflict(
@@ -134,8 +148,9 @@ public class ShipyardService {
         dao.addShipToExpedition(expeditionId, shipId);
         Long requestId = dao.createBuildRequest(
                 actor.settlementId(), expeditionId, type.code(), shipId, actor.id());
+        preparation.bumpVersion(expeditionId);
         audit.append(
-                actor.settlementId(), actor.role(), "SHIP_BUILD_REQUESTED", "EXPEDITION", expeditionId,
+                actor, "SHIP_BUILD_REQUESTED", "EXPEDITION", expeditionId,
                 "{\"requestId\":" + requestId + ",\"shipName\":\""
                         + escapeJson(name) + "\",\"capacity\":" + type.capacity() + "}");
         return requestId;
@@ -143,13 +158,14 @@ public class ShipyardService {
 
     @Transactional
     public void bless(AuthenticatedUser actor, Long shipId) {
+        preparation.lockSettlement(actor.settlementId());
         if (!dao.blessShip(actor.settlementId(), shipId)) {
             throw DomainException.conflict(
                     "BLESSING_NOT_APPLICABLE",
                     "Благословение доступно перед финальным этапом");
         }
         audit.append(
-                actor.settlementId(), actor.role(), "SHIP_BLESSED", "SHIP", shipId, "{}");
+                actor, "SHIP_BLESSED", "SHIP", shipId, "{}");
     }
 
     private void requirePreparation(Long settlementId, Long expeditionId) {

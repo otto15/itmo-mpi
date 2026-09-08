@@ -77,7 +77,7 @@ public class CrewDao {
                    and ca.expedition_id = e.id
                    and ca.user_id = :actorId
                    and e.settlement_id = :settlementId
-                   and e.status <> 'CANCELLED'
+                   and e.status = 'PREPARATION'
                    and ca.participation_status = 'PENDING'
                    and ca.version = :expectedVersion
                 """, Map.of(
@@ -87,5 +87,13 @@ public class CrewDao {
                 "settlementId", settlementId,
                 "expectedVersion", expectedVersion));
         return changed == 1;
+    }
+
+    public Long ownExpedition(Long settlementId, Long userId, Long assignmentId) {
+        return jdbc.query("""
+                select ca.expedition_id from crew_assignment ca join expedition e on e.id = ca.expedition_id
+                where ca.id = :id and ca.user_id = :user and e.settlement_id = :settlement
+                """, Map.of("id", assignmentId, "user", userId, "settlement", settlementId),
+                rs -> rs.next() ? rs.getLong(1) : null);
     }
 }

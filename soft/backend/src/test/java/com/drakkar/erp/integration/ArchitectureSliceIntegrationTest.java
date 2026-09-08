@@ -65,6 +65,8 @@ class ArchitectureSliceIntegrationTest {
         registry.add("spring.datasource.hikari.initialization-fail-timeout", () -> "30000");
         registry.add("spring.datasource.hikari.connection-timeout", () -> "30000");
         registry.add("drakkar.provisioning-key", () -> "test-provisioning-key");
+        registry.add("drakkar.reservations.sweep-ms", () -> "3600000");
+        registry.add("drakkar.events.dispatch-ms", () -> "3600000");
     }
 
     @AfterAll
@@ -81,6 +83,11 @@ class ArchitectureSliceIntegrationTest {
     @Autowired DemoResetService reset;
     @Autowired JdbcTemplate jdbc;
     @Autowired MockMvc mockMvc;
+    @Autowired com.drakkar.erp.service.ReservationService reservations;
+    @Autowired com.drakkar.erp.service.ReservationScheduler scheduler;
+    @Autowired com.drakkar.erp.service.DemoQueryService queries;
+    @Autowired com.drakkar.erp.service.StateEventService events;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
 
     @BeforeEach
     void restoreFixture() {
@@ -511,12 +518,13 @@ class ArchitectureSliceIntegrationTest {
         Long readyPreparation = 207L;
         Long incompletePreparation = 202L;
 
-        expeditions.start(jarl, readyPreparation, new ApiModels.StartExpeditionRequest(0));
+        reservations.reserve(jarl, readyPreparation, new ApiModels.ReserveRequest(0));
+        expeditions.start(jarl, readyPreparation, new ApiModels.StartExpeditionRequest(1));
 
         assertThat(jdbc.queryForObject(
                 "select status from expedition where id = ?", String.class, readyPreparation)).isEqualTo("SAILING");
         assertThat(jdbc.queryForObject(
-                "select version from expedition where id = ?", Integer.class, readyPreparation)).isEqualTo(1);
+                "select version from expedition where id = ?", Integer.class, readyPreparation)).isEqualTo(2);
         assertThatThrownBy(() -> expeditions.start(
                 jarl, incompletePreparation, new ApiModels.StartExpeditionRequest(0)))
                 .isInstanceOf(DomainException.class)
@@ -526,5 +534,158 @@ class ArchitectureSliceIntegrationTest {
     private AuthenticatedUser login(String username, String password) {
         ApiModels.LoginResponse login = auth.login(new ApiModels.LoginRequest(username, password));
         return auth.authenticate(login.token());
+    }
+
+    @Test
+    void reservationDoesNotDeductStockAndExpiredReservationIsImmediatelyAvailable() {
+        var jarl = login("ragnar", "raven-2026");
+        Long id = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(0));
+        var reserved = queries.state(jarl).stock().stream().filter(s -> s.resource().equals("PROVISIONS")).findFirst().orElseThrow();
+        assertThat(reserved.quantity()).isEqualTo(90);
+        assertThat(reserved.reserved()).isEqualTo(20);
+        assertThat(reserved.available()).isEqualTo(70);
+        expireReservation(id);
+        var released = queries.state(jarl).stock().stream().filter(s -> s.resource().equals("PROVISIONS")).findFirst().orElseThrow();
+        assertThat(released.reserved()).isZero();
+        assertThat(released.available()).isEqualTo(90);
+        assertThatThrownBy(() -> expeditions.start(jarl, 207L, new ApiModels.StartExpeditionRequest(1)))
+                .isInstanceOf(DomainException.class).hasMessageContaining("резерва");
+        scheduler.releaseExpired();
+        scheduler.releaseExpired();
+        assertThat(jdbc.queryForObject("select status from resource_reservation where id = ?", String.class, id)).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject("select count(*) from audit_event where event_type = 'RESERVATION_EXPIRED' and actor_role = 'SYSTEM' and actor_user_id is null", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void launchConsumesOnceAndKeepsEntireFleetAndCrewSnapshot() {
+        var jarl = login("ragnar", "raven-2026");
+        shipyard.assignReadyShip(jarl, 207L, 402L);
+        Long reservation = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(1));
+        expeditions.start(jarl, 207L, new ApiModels.StartExpeditionRequest(2));
+        assertThat(jdbc.queryForObject("select quantity from warehouse_stock where settlement_id = 1 and resource = 'PROVISIONS'", Integer.class)).isEqualTo(70);
+        assertThat(jdbc.queryForObject("select status from resource_reservation where id = ?", String.class, reservation)).isEqualTo("CONSUMED");
+        assertThat(jdbc.queryForObject("select jsonb_array_length(departure_snapshot->'fleet') from expedition where id = 207", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select jsonb_array_length(departure_snapshot->'crew') from expedition where id = 207", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select started_at is not null from expedition where id = 207", Boolean.class)).isTrue();
+        assertThatThrownBy(() -> expeditions.start(jarl, 207L, new ApiModels.StartExpeditionRequest(2))).isInstanceOf(DomainException.class);
+        assertThatThrownBy(() -> jdbc.update("update expedition set departure_snapshot = '{}' where id = 207")).isInstanceOf(DataAccessException.class);
+        assertThat(jdbc.queryForObject("select actor_user_id from audit_event where aggregate_id = 207 and event_type = 'EXPEDITION_STARTED'", Long.class)).isEqualTo(jarl.id());
+        assertThat(jdbc.queryForObject("select quantity from warehouse_stock where settlement_id = 1 and resource = 'PROVISIONS'", Integer.class)).isEqualTo(70);
+    }
+
+    @Test
+    void builderCannotSpendResourcesReservedForExpeditionAndFailureRollsBackEverything() {
+        var jarl = login("ragnar", "raven-2026");
+        reservations.savePlan(jarl, 207L, new ApiModels.PreparationRequest(
+                List.of(new ApiModels.RoutePoint("Каттегат", 0), new ApiModels.RoutePoint("Брессей", 650)),
+                List.of(new ApiModels.SupplyRequest("WOOD", 100)), 0));
+        reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(1));
+        assertThatThrownBy(() -> shipyard.completeStage(login("floki", "oak-2026"), SHIP, new ApiModels.CompleteStageRequest(0)))
+                .isInstanceOf(DomainException.class).hasMessageContaining("Недостаточно");
+        assertThat(jdbc.queryForObject("select quantity from warehouse_stock where settlement_id = 1 and resource = 'WOOD'", Integer.class)).isEqualTo(120);
+        assertThat(jdbc.queryForObject("select stage from ship where id = 401", Integer.class)).isEqualTo(1);
+        assertThatThrownBy(() -> reservations.reserve(jarl, 202L, new ApiModels.ReserveRequest(99))).isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    void finalizedLossesAndAllocationsCannotBeChangedOrDeleted() {
+        var jarl = login("ragnar", "raven-2026");
+        expeditions.finalizeExpedition(jarl, 201L, new ApiModels.FinalizeRequest(new ApiModels.LootRequest(10, 10, 0), List.of(312L), 0));
+        assertThatThrownBy(() -> jdbc.update("update crew_assignment set alive = true where id = 312")).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update("delete from crew_assignment where id = 312")).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update("update wergild_allocation set gold = 999 where expedition_id = 201")).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update("delete from wergild_allocation where expedition_id = 201")).isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void warriorCannotAnswerAfterDepartureOrAnswerAnotherPersonsInvitation() {
+        var warrior = login("halvdan", "shield-2026");
+        jdbc.update("update expedition set status = 'SAILING' where id = 202");
+        assertThatThrownBy(() -> crew.decide(warrior, 301L, new ApiModels.CrewDecisionRequest("CONFIRMED", 0)))
+                .isInstanceOf(DomainException.class).hasMessageContaining("подготовки");
+        assertThatThrownBy(() -> crew.decide(warrior, 325L, new ApiModels.CrewDecisionRequest("CONFIRMED", 0)))
+                .isInstanceOf(DomainException.class);
+        assertThat(jdbc.queryForObject("select participation_status from crew_assignment where id = 301", String.class)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void sseSendsOnlyAfterCommitAndNeverToAnotherSettlementOrUnrelatedWarrior() throws Exception {
+        String jarl = auth.login(new ApiModels.LoginRequest("ragnar", "raven-2026")).token();
+        String other = auth.login(new ApiModels.LoginRequest("erik", "birka-2026")).token();
+        String warrior = auth.login(new ApiModels.LoginRequest("halvdan", "shield-2026")).token();
+        var first = mockMvc.perform(get("/api/events").header("Authorization", "Bearer " + jarl)).andExpect(status().isOk()).andReturn();
+        var second = mockMvc.perform(get("/api/events").header("Authorization", "Bearer " + other)).andReturn();
+        var third = mockMvc.perform(get("/api/events").header("Authorization", "Bearer " + warrior)).andReturn();
+        events.dispatch();
+        assertThat(first.getResponse().getContentAsString()).contains("event:connected");
+        new org.springframework.transaction.support.TransactionTemplate(transactions).executeWithoutResult(tx -> {
+            reservations.reserve(auth.authenticate(jarl), 207L, new ApiModels.ReserveRequest(0));
+            events.dispatch();
+            assertThat(new String(first.getResponse().getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8)).doesNotContain("event:refresh");
+            tx.setRollbackOnly();
+        });
+        events.dispatch();
+        assertThat(first.getResponse().getContentAsString()).doesNotContain("event:refresh");
+        reservations.reserve(auth.authenticate(jarl), 207L, new ApiModels.ReserveRequest(0));
+        events.dispatch();
+        assertThat(first.getResponse().getContentAsString()).contains("event:refresh");
+        assertThat(second.getResponse().getContentAsString()).doesNotContain("event:refresh");
+        assertThat(third.getResponse().getContentAsString()).doesNotContain("event:refresh");
+        auth.logout(jarl);
+        auth.logout(other);
+        auth.logout(warrior);
+        events.dispatch();
+        mockMvc.perform(get("/api/events").header("Authorization", "Bearer " + jarl)).andExpect(status().isUnauthorized());
+    }
+
+    private void expireReservation(Long id) {
+        jdbc.update("update resource_reservation set created_at = clock_timestamp() - interval '2 minutes', expires_at = clock_timestamp() - interval '1 minute' where id = ?", id);
+    }
+
+    @Test
+    void concurrentReservationsCannotOverbookStock() throws Exception {
+        var jarl = login("ragnar", "raven-2026");
+        jdbc.update("update warehouse_stock set quantity = 30 where settlement_id = 1 and resource = 'PROVISIONS'");
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        try {
+            var results = List.of(202L, 207L).stream().map(id -> executor.submit(() -> {
+                start.await();
+                try { reservations.reserve(jarl, id, new ApiModels.ReserveRequest(0)); return "OK"; }
+                catch (DomainException ex) { return ex.code(); }
+            })).toList();
+            start.countDown();
+            assertThat(List.of(results.get(0).get(5, java.util.concurrent.TimeUnit.SECONDS), results.get(1).get(5, java.util.concurrent.TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("OK", "INSUFFICIENT_STOCK");
+            assertThat(jdbc.queryForObject("select count(*) from resource_reservation where status = 'ACTIVE' and settlement_id = 1", Integer.class)).isEqualTo(1);
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test
+    void departureChecksRealTimeAfterWaitingForLock() throws Exception {
+        var jarl = login("ragnar", "raven-2026");
+        Long id = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(0));
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var result = new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<String>>();
+        try {
+            new org.springframework.transaction.support.TransactionTemplate(transactions).executeWithoutResult(tx -> {
+                jdbc.queryForObject("select id from settlement where id = 1 for update", Long.class);
+                result.set(executor.submit(() -> {
+                    try { expeditions.start(jarl, 207L, new ApiModels.StartExpeditionRequest(1)); return "OK"; }
+                    catch (DomainException ex) { return ex.code(); }
+                }));
+                // Wait until the competing transaction has reached the lock, then expire its reservation.
+                long deadline = System.nanoTime() + java.time.Duration.ofSeconds(3).toNanos();
+                while (!jdbc.queryForObject("select exists(select 1 from pg_stat_activity where wait_event_type = 'Lock' and query like 'select id from settlement%')", Boolean.class)) {
+                    if (System.nanoTime() > deadline) throw new AssertionError("Start did not reach settlement lock");
+                    jdbc.execute("select pg_sleep(0.02)");
+                }
+                jdbc.update("update resource_reservation set created_at = clock_timestamp() - interval '2 minutes', expires_at = clock_timestamp() + interval '100 milliseconds' where id = ?", id);
+                jdbc.execute("select pg_sleep(0.15)");
+            });
+            assertThat(result.get().get(5, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("RESERVATION_REQUIRED");
+            assertThat(jdbc.queryForObject("select status from expedition where id = 207", String.class)).isEqualTo("PREPARATION");
+            assertThat(jdbc.queryForObject("select quantity from warehouse_stock where settlement_id = 1 and resource = 'PROVISIONS'", Integer.class)).isEqualTo(90);
+        } finally { executor.shutdownNow(); }
     }
 }

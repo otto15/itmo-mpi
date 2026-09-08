@@ -1,10 +1,10 @@
 package com.drakkar.erp.service;
 
+import com.drakkar.erp.dao.PreparationDao;
 import com.drakkar.erp.dto.ApiModels;
 import com.drakkar.erp.dao.AuditDao;
 import com.drakkar.erp.dao.ExpeditionDao;
 import com.drakkar.erp.domain.AuthenticatedUser;
-import com.drakkar.erp.domain.CrewCounts;
 import com.drakkar.erp.domain.CrewMember;
 import com.drakkar.erp.domain.DomainException;
 import com.drakkar.erp.domain.ExpeditionState;
@@ -22,11 +22,15 @@ import java.util.stream.Collectors;
 public class ExpeditionService {
     private final ExpeditionDao dao;
     private final AuditDao audit;
+    private final PreparationDao preparation;
+    private final ReadinessService readiness;
     private final WergildCalculator calculator = new WergildCalculator();
 
-    public ExpeditionService(ExpeditionDao dao, AuditDao audit) {
+    public ExpeditionService(ExpeditionDao dao, AuditDao audit, PreparationDao preparation, ReadinessService readiness) {
         this.dao = dao;
         this.audit = audit;
+        this.preparation = preparation;
+        this.readiness = readiness;
     }
 
     @Transactional
@@ -35,6 +39,7 @@ public class ExpeditionService {
             Long expeditionId,
             ApiModels.StartExpeditionRequest request
     ) {
+        preparation.lockSettlement(actor.settlementId());
         ExpeditionState expedition = findExpedition(actor.settlementId(), expeditionId, true);
         if (!expedition.isInPreparation()) {
             throw DomainException.conflict(
@@ -45,34 +50,21 @@ public class ExpeditionService {
             throw DomainException.conflict("STALE_EXPEDITION", "Данные похода устарели");
         }
 
-        int readyCapacity = dao.readyCapacity(actor.settlementId(), expeditionId);
-        if (dao.unfinishedShipCount(actor.settlementId(), expeditionId) > 0) {
-            throw DomainException.conflict("FLEET_NOT_READY", "Во флоте есть недостроенные корабли");
+        preparation.lockStock(actor.settlementId());
+        var at = preparation.databaseTime();
+        var report = readiness.check(actor.settlementId(), expeditionId, at);
+        if (!report.ready()) {
+            var blocker = report.blockers().get(0);
+            throw DomainException.conflict(blocker.code(), blocker.message());
         }
-
-        CrewCounts crew = dao.crewCounts(expeditionId);
-        if (readyCapacity < crew.invited()) {
-            throw DomainException.conflict(
-                    "FLEET_CAPACITY_INSUFFICIENT",
-                    "Вместимости готового флота недостаточно для приглашённой команды");
-        }
-        if (!crew.hasConfirmedMembers()) {
-            throw DomainException.conflict(
-                    "CREW_NOT_CONFIRMED",
-                    "Нужен хотя бы один подтверждённый участник");
-        }
-        if (crew.hasPendingDecisions()) {
-            throw DomainException.conflict(
-                    "CREW_DECISIONS_PENDING",
-                    "Не все участники ответили на назначение");
-        }
+        preparation.consumeExpedition(actor.settlementId(), expeditionId, at);
+        preparation.snapshot(expeditionId, at);
 
         if (!dao.markSailing(actor.settlementId(), expeditionId, request.expectedVersion())) {
             throw DomainException.conflict("STALE_EXPEDITION", "Данные похода устарели");
         }
         audit.append(
-                actor.settlementId(), actor.role(), "EXPEDITION_STARTED", "EXPEDITION", expeditionId,
-                "{\"readyCapacity\":" + readyCapacity + ",\"crewSize\":" + crew.invited() + "}");
+                actor, "EXPEDITION_STARTED", "EXPEDITION", expeditionId, "{}");
     }
 
     public List<ApiModels.AllocationView> preview(
@@ -82,7 +74,7 @@ public class ExpeditionService {
     ) {
         ExpeditionState expedition = findExpedition(actor.settlementId(), expeditionId, false);
         validateCanFinalize(expedition, request.expectedVersion());
-        return toViews(calculate(expeditionId, request));
+        return toViews(expeditionId, calculate(expeditionId, request));
     }
 
     @Transactional
@@ -91,6 +83,7 @@ public class ExpeditionService {
             Long expeditionId,
             ApiModels.FinalizeRequest request
     ) {
+        preparation.lockSettlement(actor.settlementId());
         ExpeditionState expedition = findExpedition(actor.settlementId(), expeditionId, true);
         validateCanFinalize(expedition, request.expectedVersion());
         List<WergildCalculator.Allocation> allocations = calculate(expeditionId, request);
@@ -129,9 +122,9 @@ public class ExpeditionService {
         }
 
         audit.append(
-                actor.settlementId(), actor.role(), "EXPEDITION_FINALIZED", "EXPEDITION", expeditionId,
+                actor, "EXPEDITION_FINALIZED", "EXPEDITION", expeditionId,
                 "{\"allocations\":" + allocations.size() + ",\"fallen\":" + fallen.size() + "}");
-        return toViews(allocations);
+        return toViews(expeditionId, allocations);
     }
 
     private ExpeditionState findExpedition(Long settlementId, Long expeditionId, boolean lock) {
@@ -185,10 +178,12 @@ public class ExpeditionService {
     }
 
     private List<ApiModels.AllocationView> toViews(
+            Long expeditionId,
             List<WergildCalculator.Allocation> allocations
     ) {
         return allocations.stream()
                 .map(allocation -> new ApiModels.AllocationView(
+                        expeditionId,
                         allocation.recipient(),
                         allocation.category(),
                         new ApiModels.LootRequest(

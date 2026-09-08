@@ -1,5 +1,6 @@
 package com.drakkar.erp.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -41,7 +42,8 @@ public final class ApiModels {
             List<AuditView> audit,
             int version,
             boolean immutable,
-            LootRequest loot
+            LootRequest loot,
+            PreparationView preparation
     ) {
     }
 
@@ -104,16 +106,30 @@ public final class ApiModels {
     public record RequirementView(String resource, int quantity, int available) {
     }
 
-    public record StockView(String resource, int quantity, int version) {
+    public record StockView(String resource, int quantity, int version, int reserved, int available) {
     }
 
-    public record AllocationView(String recipient, String category, LootRequest loot) {
+    public record RoutePoint(@NotBlank @Size(max = 160) String name, @Min(0) int distanceKm) {}
+    public record Blocker(String code, String message) {}
+    public record ReadinessView(boolean ready, List<Blocker> blockers) {}
+    public record ReservationView(Long id, String status, Instant expiresAt, List<RecipeResourceView> resources) {}
+    public record PreparationView(List<RoutePoint> route, List<RecipeResourceView> requirements,
+                                  List<ReservationView> reservations, ReadinessView readiness,
+                                  Instant startedAt, JsonNode snapshot) {}
+    public record ReserveRequest(@Min(0) int expectedVersion) {}
+    public record PreparationRequest(@NotNull @Size(min = 2, max = 30) List<@NotNull @Valid RoutePoint> route,
+                                     @NotNull @Size(min = 1, max = 6) List<@NotNull @Valid SupplyRequest> resources,
+                                     @Min(0) int expectedVersion) {}
+    public record SupplyRequest(@NotBlank String resource, @Min(1) int quantity) {}
+
+    public record AllocationView(Long expeditionId, String recipient, String category, LootRequest loot) {
     }
 
     public record AuditView(
             long id,
             Instant happenedAt,
             String actorRole,
+            String actorName,
             String eventType,
             String aggregateType,
             Long aggregateId,

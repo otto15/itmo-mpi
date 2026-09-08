@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, apiDelete, ApiError } from './api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, apiDelete } from './api'
+import { useLiveState } from './useLiveState'
+import { PreparationPanel, DeparturePanel } from './PreparationPanel'
 import type { Allocation, Crew, DemoState, Expedition, Loot, Role, Session } from './types'
 
 type Tab = 'overview' | 'expeditions' | 'crew' | 'shipyard' | 'resources' | 'results' | 'history'
@@ -40,25 +42,16 @@ function App() {
     const saved = localStorage.getItem('drakkar-session')
     return saved ? JSON.parse(saved) as Session : null
   })
-  const [state, setState] = useState<DemoState | null>(null)
   const [tab, setTab] = useState<Tab>('overview')
   const [notice, setNotice] = useState<Notice>(null)
   const [busy, setBusy] = useState(false)
 
-  const loadState = useCallback(async (activeSession = session) => {
-    if (!activeSession) return
-    try {
-      setState(await api<DemoState>('/api/demo/state', activeSession.token))
-    } catch (error) {
-      if (error instanceof ApiError && (error.code === 'SESSION_INVALID' || error.code === 'AUTH_REQUIRED')) {
-        localStorage.removeItem('drakkar-session')
-        setSession(null)
-      }
-      setNotice({ kind: 'error', text: messageOf(error) })
-    }
-  }, [session])
-
-  useEffect(() => { void loadState() }, [loadState])
+  const expireSession = useCallback(() => {
+    localStorage.removeItem('drakkar-session')
+    setSession(null)
+    setNotice({ kind: 'error', text: 'Сессия истекла. Войдите снова.' })
+  }, [])
+  const { state, connected, refresh: loadState } = useLiveState(session, expireSession)
   useEffect(() => {
     if (!notice) return
     const timer = window.setTimeout(() => setNotice(null), 5000)
@@ -72,7 +65,6 @@ function App() {
       localStorage.setItem('drakkar-session', JSON.stringify(next))
       setSession(next)
       setTab(defaultTab(next.role))
-      await loadState(next)
       setNotice({ kind: 'ok', text: `Вход выполнен: ${next.displayName}` })
     } catch (error) {
       setNotice({ kind: 'error', text: messageOf(error) })
@@ -88,7 +80,6 @@ function App() {
       await api<void>('/api/auth/logout', session.token, {})
     } finally {
       localStorage.removeItem('drakkar-session')
-      setState(null)
       setSession(null)
       setBusy(false)
     }
@@ -102,6 +93,7 @@ function App() {
       await loadState()
       setNotice({ kind: 'ok', text: success })
     } catch (error) {
+      await loadState()
       setNotice({ kind: 'error', text: messageOf(error) })
     } finally {
       setBusy(false)
@@ -127,6 +119,7 @@ function App() {
       <header className="topbar">
         <h1>{tabTitle(activeTab)}</h1>
         <div className="user-context">
+          {!connected && <small className="connection-status">Восстанавливаем связь…</small>}
           <div className="current-settlement"><small>Поселение</small><b>{state?.activeSettlementName ?? '—'}</b></div>
           <div className="current-user"><b>{session.displayName}</b><small>{roleNames[session.role]}</small></div>
         </div>
@@ -195,7 +188,7 @@ function ExpeditionsModule({ state, session, busy, perform }: ModuleProps) {
       <ExpeditionList expeditions={current} selectedId={selected?.id} onSelect={setSelectedId} />
     </div>
     <div className="panel expedition-detail-panel">
-      {selected && <ExpeditionDetails expedition={selected} state={state} session={session} busy={busy} perform={perform} />}
+      {selected && <ExpeditionDetails key={selected.id} expedition={selected} state={state} session={session} busy={busy} perform={perform} />}
     </div>
   </section>
 }
@@ -221,10 +214,7 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
   const canManage = session.role === 'JARL' && expedition.status === 'PREPARATION'
   const expeditionCrew = state.crew.filter(member => member.expeditionId === expedition.id)
   const crewOnBoard = expeditionCrew.filter(member => member.participationStatus === 'CONFIRMED' || (expedition.status === 'PREPARATION' && member.participationStatus === 'PENDING'))
-  const confirmedCrew = expeditionCrew.filter(member => member.participationStatus === 'CONFIRMED').length
-  const pendingCrew = expeditionCrew.filter(member => member.participationStatus === 'PENDING').length
-  const allShipsReady = expedition.fleet.length > 0 && expedition.fleet.every(ship => ship.ready)
-  const canStart = readyShortage === 0 && allShipsReady && confirmedCrew > 0 && pendingCrew === 0
+  const canStart = expedition.preparation?.readiness.ready ?? false
   return <>
     <div className="detail-heading">
       <div><span>Карточка похода</span><h2>{expedition.name}</h2><p>{expedition.target} · {dateOf(expedition.plannedDeparture)}</p></div>
@@ -242,13 +232,13 @@ function ExpeditionDetails({ expedition, state, session, busy, perform }: { expe
     </div>
     <div className="crew-section-heading"><h3>{expedition.status === 'SAILING' ? `Команда в походе · ${crewOnBoard.length}` : `Команда похода · ${crewOnBoard.length}`}</h3>{expedition.status === 'SAILING' && <small>Участники в плавании недоступны для назначения в другие походы</small>}</div>
     <CrewRoster members={crewOnBoard} away={expedition.status === 'SAILING'} />
+    {expedition.preparation && (canManage
+      ? <PreparationPanel expedition={expedition} session={session} busy={busy} perform={perform} />
+      : <DeparturePanel preparation={expedition.preparation} />)}
     {canManage && <div className="launch-box">
       <div><b>Готовность к выходу</b><small>Поход начнётся, когда выполнены все условия</small></div>
-      <ul>
-        <li className={expedition.crewSize > 0 && readyShortage === 0 ? 'ready' : ''}><span>{expedition.crewSize > 0 && readyShortage === 0 ? '✓' : '·'}</span>Мест: {expedition.readyCapacity} для {expedition.crewSize} приглашённых</li>
-        <li className={allShipsReady ? 'ready' : ''}><span>{allShipsReady ? '✓' : '·'}</span>{allShipsReady ? 'Все корабли готовы' : 'Есть недостроенные корабли'}</li>
-        <li className={confirmedCrew > 0 && pendingCrew === 0 ? 'ready' : ''}><span>{confirmedCrew > 0 && pendingCrew === 0 ? '✓' : '·'}</span>{confirmedCrew ? `Подтверждено участников: ${confirmedCrew}` : 'Нет подтверждённых участников'}{pendingCrew ? ` · ожидается ответ: ${pendingCrew}` : ''}</li>
-      </ul>
+      <ul>{canStart ? <li className="ready"><span>✓</span>Команда, флот, маршрут и припасы готовы</li>
+        : expedition.preparation?.readiness.blockers.map(item => <li key={item.code + item.message}>{item.message.replace(/PROVISIONS/g, 'провизия').replace(/WOOD/g, 'дерево').replace(/CLOTH/g, 'ткань').replace(/RESIN/g, 'смола').replace(/GOLD/g, 'золото').replace(/THRALLS/g, 'пленные')}</li>)}</ul>
       <button className="primary" disabled={busy || !canStart} onClick={() => void perform(() => api(`/api/expeditions/${expedition.id}/start`, session.token, { expectedVersion: expedition.version }), 'Поход начат')}>Начать поход</button>
     </div>}
     {canManage && <div className="fleet-actions">
@@ -275,7 +265,7 @@ function CrewModule({ state, session, busy, perform }: ModuleProps) {
   const members = state.crew.filter(item => item.expeditionId === expedition?.id)
   const [userId, setUserId] = useState(state.availableUsers[0]?.id ?? '')
   const [expeditionRole, setExpeditionRole] = useState('разведчик')
-  const pendingMine = state.crew.find(item => item.userId === session.userId && item.participationStatus === 'PENDING')
+  const pendingMine = state.crew.find(item => item.userId === session.userId && item.participationStatus === 'PENDING' && state.expeditions.some(e => e.id === item.expeditionId && e.status === 'PREPARATION'))
   const occupied = state.crew.filter(member => {
     const memberExpedition = state.expeditions.find(item => item.id === member.expeditionId)
     return (member.participationStatus === 'PENDING' || member.participationStatus === 'CONFIRMED') && (memberExpedition?.status === 'PREPARATION' || memberExpedition?.status === 'SAILING')
@@ -305,8 +295,8 @@ function ShipyardModule({ state, session, busy, perform }: ModuleProps) {
       <div className="detail-heading"><div><span>{ship.requestStatus ? 'Заказ на строительство' : 'Корабль'}</span><h2>{ship.name}</h2><p>{ship.expeditionName ? `Для похода «${ship.expeditionName}»` : `${ship.typeName} · ${ship.capacity} мест`}</p></div><Status value={ship.stage === 4 ? 'READY' : 'IN_CONSTRUCTION'} /></div>
       <div className="progress-head"><span>Текущий этап</span><b>{ship.stageName}</b><em>{ship.progress}%</em></div><div className="progress"><i style={{ width: `${ship.progress}%` }} /></div>
       <div className="stage-track">{['Лес', 'Каркас', 'Обшивка', 'Оснастка', 'Готов'].map((name, index) => <div key={name} className={index < ship.stage ? 'done' : index === ship.stage ? 'current' : ''}><span>{index < ship.stage ? '✓' : index + 1}</span><small>{name}</small></div>)}</div>
-      <h3>Для текущего этапа</h3><div className="requirement-grid">{ship.requirements.length ? ship.requirements.map(req => <div key={req.resource} className={req.available >= req.quantity ? 'requirement enough' : 'requirement shortage'}><span>{resourceNames[req.resource]}</span><b>{req.quantity}</b><small>на складе {req.available}</small></div>) : <Empty title="Ресурсы не требуются" />}</div>
-      {session.role === 'SHIPBUILDER' && <button className="primary large" disabled={busy || ship.stage === 4} onClick={() => void perform(() => api(`/api/ships/${ship.id}/complete-stage`, session.token, { expectedVersion: ship.version }), 'Этап завершён, склад обновлён')}>Завершить этап →</button>}
+      <h3>Для текущего этапа</h3><div className="requirement-grid">{ship.requirements.length ? ship.requirements.map(req => <div key={req.resource} className={req.available >= req.quantity ? 'requirement enough' : 'requirement shortage'}><span>{resourceNames[req.resource]}</span><b>{req.quantity}</b><small>доступно {req.available}</small></div>) : <Empty title="Ресурсы не требуются" />}</div>
+      {session.role === 'SHIPBUILDER' && <button className="primary large" disabled={busy || ship.stage === 4 || (ship.stage === 3 && !ship.blessed) || ship.requirements.some(req => req.available < req.quantity)} onClick={() => void perform(() => api(`/api/ships/${ship.id}/complete-stage`, session.token, { expectedVersion: ship.version }), 'Этап завершён, склад обновлён')}>Завершить этап →</button>}
       {ship.stage === 3 && <div className="blessing-inline"><div className={ship.blessed ? 'seal blessed' : 'seal'}>ᛉ</div><div><b>{ship.blessed ? 'Блот проведён' : 'Ожидается Жрец'}</b><small>Без подтверждения финальный этап не завершить</small></div>{session.role === 'PRIEST' && <button className="primary" disabled={busy || ship.blessed} onClick={() => void perform(() => api(`/api/ships/${ship.id}/bless`, session.token, {}), 'Благословение подтверждено')}>Подтвердить Блот</button>}</div>}
     </div>
   </section>
@@ -315,7 +305,7 @@ function ShipyardModule({ state, session, busy, perform }: ModuleProps) {
 function ResourcesModule({ state }: { state: DemoState }) {
   if (!state.stock.length) return <section className="panel"><Empty title="Ресурсы недоступны для этой роли" /></section>
   return <section className="resource-layout">
-    <div className="panel"><PanelHead overline="Текущие остатки" title="Склад" /><div className="stock-grid">{state.stock.map(item => <div key={item.resource}><span>{resourceNames[item.resource] ?? item.resource}</span><b>{item.quantity}</b><small>единиц</small></div>)}</div></div>
+    <div className="panel"><PanelHead overline="Текущие остатки" title="Склад" /><div className="stock-grid">{state.stock.map(item => <div key={item.resource}><span>{resourceNames[item.resource] ?? item.resource}</span><b>{item.available}</b><small>доступно · всего {item.quantity}</small><small>в резерве {item.reserved}</small></div>)}</div></div>
     <div className="panel"><PanelHead overline="Нормативы верфи" title="Рецепты кораблей" /><div className="recipe-cards">{state.shipTypes.map(type => <div key={type.code}><div><b>{type.name}</b><span>{type.capacity} мест</span></div><ul>{type.recipe.map(item => <li key={item.resource}><span>{resourceNames[item.resource]}</span><b>{item.quantity}</b></li>)}</ul></div>)}</div></div>
   </section>
 }
@@ -323,21 +313,80 @@ function ResourcesModule({ state }: { state: DemoState }) {
 function ResultsModule({ state, session, busy, perform }: ModuleProps) {
   const sailing = state.expeditions.filter(item => item.status === 'SAILING')
   const [selectedId, setSelectedId] = useState(sailing[0]?.id ?? '')
-  const expedition = sailing.find(item => item.id === selectedId) ?? sailing[0]
+  const expedition = state.expeditions.find(item => item.id === selectedId) ?? sailing[0]
   const crew = state.crew.filter(item => item.expeditionId === expedition?.id && item.participationStatus === 'CONFIRMED')
   const [loot, setLoot] = useState<Loot>({ gold: 100, provisions: 50, thralls: 10 })
   const [fallen, setFallen] = useState<number[]>([])
-  const [preview, setPreview] = useState<Allocation[]>([])
+  const [calculated, setCalculated] = useState<{ key: string; revision: number; rows: Allocation[] } | null>(null)
+  const revision = useRef(0)
+  const mounted = useRef(true)
   const payload = { loot, fallenAssignmentIds: fallen, expectedVersion: expedition?.version ?? 0 }
-  function setResource(key: keyof Loot, value: string) { setLoot(old => ({ ...old, [key]: Math.max(0, Number(value) || 0) })) }
-  function toggleFallen(id: number) { setFallen(old => old.includes(id) ? old.filter(item => item !== id) : [...old, id]) }
-  useEffect(() => { setFallen([]); setPreview([]) }, [expedition?.id])
+  const key = JSON.stringify({ id: expedition?.id, ...payload })
+  const latestKey = useRef(key)
+  latestKey.current = key
+  const preview = calculated?.key === key && calculated.revision === revision.current ? calculated.rows : []
+  function invalidate() { revision.current++; setCalculated(null) }
+  function setResource(field: keyof Loot, value: string) {
+    invalidate()
+    setLoot(old => ({ ...old, [field]: Math.max(0, Math.floor(Number(value) || 0)) }))
+  }
+  function toggleFallen(id: number) {
+    invalidate()
+    setFallen(old => old.includes(id) ? old.filter(item => item !== id) : [...old, id])
+  }
+  useEffect(() => {
+    invalidate()
+    setLoot({ gold: 100, provisions: 50, thralls: 10 })
+    setFallen([])
+  }, [expedition?.id])
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   if (!expedition) return <section className="panel"><Empty title="Нет похода в плавании" /></section>
-  return <section className="module-grid results-grid"><div className="panel wide"><div className="module-title-row"><PanelHead overline="Завершение похода" title={expedition.name} />{sailing.length > 1 && <select value={expedition.id} onChange={event => setSelectedId(Number(event.target.value))}>{sailing.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div>
-    <h3>Фактическая добыча</h3><div className="loot-grid">{(['gold', 'provisions', 'thralls'] as (keyof Loot)[]).map(key => <label key={key}><span>{resourceNames[key.toUpperCase()]}</span><input type="number" min="0" value={loot[key]} onChange={event => setResource(key, event.target.value)} /></label>)}</div>
-    <h3>Состав и потери</h3><div className="casualty-list">{crew.map(member => <label key={member.id} className={fallen.includes(member.id) ? 'fallen' : ''}><input type="checkbox" checked={fallen.includes(member.id)} onChange={() => toggleFallen(member.id)} /><span>{member.userName}<small>{member.expeditionRole}</small></span><b>{fallen.includes(member.id) ? 'Погиб' : 'Выжил'}</b></label>)}</div>
-    {session.role === 'JARL' ? <div className="button-row"><button className="secondary" disabled={busy} onClick={() => void perform(() => api<Allocation[]>(`/api/expeditions/${expedition.id}/finalization-preview`, session.token, payload), 'Предварительный расчёт готов', setPreview)}>Рассчитать Вергельд</button><button className="primary" disabled={busy || !preview.length} onClick={() => void perform(() => api<Allocation[]>(`/api/expeditions/${expedition.id}/finalize`, session.token, payload), 'Итоги утверждены', setPreview)}>Утвердить итоги</button></div> : <RolePrompt role="JARL" />}
-  </div><div className="panel side-panel allocation-panel"><PanelHead overline="Предварительный расчёт" title="Распределение" />{preview.length ? <div className="allocations">{preview.map((item, index) => <div key={`${item.recipient}-${index}`}><span><b>{item.recipient}</b><small>{item.category}</small></span><code>{item.loot.gold} · {item.loot.provisions} · {item.loot.thralls}</code></div>)}</div> : <Empty title="Расчёт ещё не выполнен" />}</div></section>
+  const saved = expedition.status === 'COMPLETED'
+  const allocations = saved ? state.allocations.filter(item => item.expeditionId === expedition.id) : preview
+  function calculate() {
+    const requestedKey = key
+    const requestedRevision = revision.current
+    void perform(() => api<Allocation[]>(`/api/expeditions/${expedition.id}/finalization-preview`, session.token, payload),
+      'Расчёт завершён', rows => {
+        if (mounted.current && latestKey.current === requestedKey && revision.current === requestedRevision)
+          setCalculated({ key: requestedKey, revision: requestedRevision, rows })
+      })
+  }
+  return <section className="module-grid results-grid">
+    <div className="panel wide">
+      <div className="module-title-row"><PanelHead overline={saved ? 'Итоги утверждены' : 'Завершение похода'} title={expedition.name} />
+        <select aria-label="Поход для подведения итогов" value={expedition.id} onChange={event => { invalidate(); setSelectedId(Number(event.target.value)) }}>
+          {saved && <option value={expedition.id}>{expedition.name} · завершён</option>}
+          {sailing.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </div>
+      {saved ? <>
+        <div className="history-summary"><div><span>Золото</span><b>{expedition.loot?.gold}</b></div><div><span>Провизия</span><b>{expedition.loot?.provisions}</b></div><div><span>Пленные</span><b>{expedition.loot?.thralls}</b></div></div>
+        <CrewRoster members={crew} completed />
+        <AuditTimeline events={expedition.audit} />
+      </> : <>
+        <h3>Фактическая добыча</h3>
+        <div className="loot-grid">{(['gold', 'provisions', 'thralls'] as (keyof Loot)[]).map(field =>
+          <label key={field}><span>{resourceNames[field.toUpperCase()]}</span><input type="number" min="0" value={loot[field]} onChange={event => setResource(field, event.target.value)} /></label>)}</div>
+        <h3>Состав и потери</h3>
+        <div className="casualty-list">{crew.map(member => <label key={member.id} className={fallen.includes(member.id) ? 'fallen' : ''}>
+          <input type="checkbox" checked={fallen.includes(member.id)} onChange={() => toggleFallen(member.id)} /><span>{member.userName}<small>{member.expeditionRole}</small></span><b>{fallen.includes(member.id) ? 'Погиб' : 'Выжил'}</b>
+        </label>)}</div>
+        {session.role === 'JARL' && <div className="button-row">
+          <button className="secondary" disabled={busy} onClick={calculate}>Рассчитать Вергельд</button>
+          <button className="primary" disabled={busy || !preview.length} onClick={() => void perform(
+            () => api<Allocation[]>(`/api/expeditions/${expedition.id}/finalize`, session.token, payload), 'Итоги утверждены', invalidate)}>Утвердить итоги</button>
+        </div>}
+      </>}
+    </div>
+    <div className="panel side-panel allocation-panel"><PanelHead overline={saved ? 'Утверждённые итоги' : 'Предварительный расчёт'} title="Распределение" />
+      {allocations.length ? <AllocationList items={allocations} /> : <Empty title="Расчёт ещё не выполнен" />}
+    </div>
+  </section>
+}
+
+function AllocationList({ items }: { items: Allocation[] }) {
+  return <div className="allocations">{items.map((item, index) => <div key={index}><span><b>{item.recipient}</b><small>{({ JARL: 'Ярл', WARRIOR: 'Воин', FAMILY: 'Семья погибшего', SETTLEMENT: 'Поселение' } as Record<string, string>)[item.category] ?? item.category}</small></span><code>{item.loot.gold} · {item.loot.provisions} · {item.loot.thralls}</code></div>)}</div>
 }
 
 function HistoryModule({ state }: { state: DemoState }) {
@@ -352,7 +401,7 @@ function HistoryModule({ state }: { state: DemoState }) {
       <div className="history-summary"><div><span>Золото</span><b>{selected.loot?.gold ?? 0}</b></div><div><span>Провизия</span><b>{selected.loot?.provisions ?? 0}</b></div><div><span>Пленные</span><b>{selected.loot?.thralls ?? 0}</b></div><div><span>Корабли</span><b>{selected.fleet.length}</b></div></div>
       <h3>Флот</h3><div className="fleet-chips">{selected.fleet.map(ship => <span key={ship.id}>{ship.name}<small>{ship.typeName} · {ship.capacity} мест</small></span>)}</div>
       <h3>Команда</h3><CrewRoster members={selectedCrew} completed />
-      <AuditTimeline events={selected.audit} />
+      {selected.preparation && <DeparturePanel preparation={selected.preparation} />}<AuditTimeline events={selected.audit} />
     </>}</div>
   </section>
 }
@@ -363,7 +412,7 @@ function CrewRoster({ members, away = false, completed = false }: { members: Cre
 }
 
 function AuditTimeline({ events }: { events: Expedition['audit'] }) {
-  return <div className="expedition-audit"><h3>История изменений</h3>{events.length ? <div className="audit-list">{events.map(event => <div key={event.id}><time>{dateTimeOf(event.happenedAt)}</time><i /><span><b>{eventLabel(event.eventType)}</b><small>{roleNames[event.actorRole]}</small></span></div>)}</div> : <Empty title="Изменений пока нет" />}</div>
+  return <div className="expedition-audit"><h3>История изменений</h3>{events.length ? <div className="audit-list">{events.map(event => <div key={event.id}><time>{dateTimeOf(event.happenedAt)}</time><i /><span><b>{eventLabel(event.eventType)}</b><small>{event.actorRole === 'SYSTEM' ? 'Система' : `${event.actorName ? `${event.actorName} · ` : ''}${roleNames[event.actorRole]}`}</small></span></div>)}</div> : <Empty title="Изменений пока нет" />}</div>
 }
 
 function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <div className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div> }
@@ -377,6 +426,6 @@ function messageOf(error: unknown) { return error instanceof Error ? error.messa
 function dateOf(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) }
 function dateTimeOf(value: string) { return new Date(value).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }
 function tabTitle(tab: Tab) { return ({ overview: 'Обзор', expeditions: 'Походы', crew: 'Команда', shipyard: 'Верфь', resources: 'Ресурсы', results: 'Итоги похода', history: 'История походов' } as const)[tab] }
-function eventLabel(value: string) { const labels: Record<string, string> = { CREW_MEMBER_ASSIGNED: 'Участник добавлен в команду', PARTICIPATION_CONFIRMED: 'Участие подтверждено', PARTICIPATION_DECLINED: 'Участник отказался от похода', SHIP_ASSIGNED: 'Корабль добавлен во флот', SHIP_REMOVED: 'Корабль убран из похода', SHIP_BUILD_REQUESTED: 'Запрошено строительство корабля', SHIP_STAGE_COMPLETED: 'Этап строительства завершён', SHIP_BLESSED: 'Корабль благословлён', EXPEDITION_STARTED: 'Поход начат', EXPEDITION_FINALIZED: 'Итоги похода утверждены', EXPEDITION_PLANNED: 'Поход запланирован' }; return labels[value] ?? 'Изменение сохранено' }
+function eventLabel(value: string) { const labels: Record<string, string> = { CREW_MEMBER_ASSIGNED: 'Участник добавлен в команду', PARTICIPATION_CONFIRMED: 'Участие подтверждено', PARTICIPATION_DECLINED: 'Участник отказался от похода', SHIP_ASSIGNED: 'Корабль добавлен во флот', SHIP_REMOVED: 'Корабль убран из похода', SHIP_BUILD_REQUESTED: 'Запрошено строительство корабля', SHIP_STAGE_COMPLETED: 'Этап строительства завершён', SHIP_BLESSED: 'Корабль благословлён', EXPEDITION_STARTED: 'Поход начат', EXPEDITION_FINALIZED: 'Итоги похода утверждены', EXPEDITION_PLANNED: 'Поход запланирован', PREPARATION_UPDATED: 'Маршрут и припасы обновлены', RESOURCES_RESERVED: 'Припасы зарезервированы', RESERVATION_EXPIRED: 'Резерв освобождён по сроку' }; return labels[value] ?? 'Изменение сохранено' }
 
 export default App

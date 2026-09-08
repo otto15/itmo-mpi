@@ -24,6 +24,24 @@ export type Expedition = {
   version: number
   immutable: boolean
   loot?: Loot
+  preparation?: Preparation
+}
+
+export type RoutePoint = { name: string; distanceKm: number }
+export type Supply = { resource: string; quantity: number }
+export type Departure = {
+  crew: { id: number; userId: number; name: string; role: string }[]
+  fleet: { id: number; name: string; type: string; capacity: number }[]
+  route: RoutePoint[]
+  resources: Supply[]
+}
+export type Preparation = {
+  route: RoutePoint[]
+  requirements: Supply[]
+  reservations: { id: number; status: string; expiresAt: string; resources: Supply[] }[]
+  readiness: { ready: boolean; blockers: { code: string; message: string }[] }
+  startedAt?: string
+  snapshot?: Departure
 }
 
 export type Crew = {
@@ -71,12 +89,13 @@ export type ShipType = {
   capacity: number
   recipe: { resource: string; quantity: number }[]
 }
-export type Stock = { resource: string; quantity: number; version: number }
-export type Allocation = { recipient: string; category: string; loot: Loot }
+export type Stock = { resource: string; quantity: number; version: number; reserved: number; available: number }
+export type Allocation = { expeditionId: number; recipient: string; category: string; loot: Loot }
 export type Audit = {
   id: number
   happenedAt: string
-  actorRole: Role
+  actorRole: Role | 'SYSTEM'
+  actorName?: string
   eventType: string
   aggregateType: string
   aggregateId: number

@@ -24,6 +24,7 @@ public class DemoResetDao {
     }
 
     public void reset(Long settlementId) {
+        jdbc.queryForObject("select set_config('drakkar.demo_reset', 'on', true)", Map.of(), String.class);
         clearSettlement(settlementId);
 
         Long sailing = 201L;
@@ -140,6 +141,7 @@ public class DemoResetDao {
 
     private void clearSettlement(Long settlementId) {
         Map<String, Object> parameters = Map.of("settlementId", settlementId);
+        jdbc.update("delete from resource_reservation where settlement_id = :settlementId", parameters);
         jdbc.update("delete from audit_event where settlement_id = :settlementId", parameters);
         jdbc.update("""
                 delete from wergild_allocation wa using expedition e

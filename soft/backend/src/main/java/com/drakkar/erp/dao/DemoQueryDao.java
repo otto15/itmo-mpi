@@ -39,6 +39,7 @@ public class DemoQueryDao {
             long id,
             Instant happenedAt,
             String actorRole,
+            String actorName,
             String eventType,
             String aggregateType,
             Long aggregateId,
@@ -91,6 +92,7 @@ public class DemoQueryDao {
     }
 
     public record AllocationRow(
+            Long expeditionId,
             String recipient,
             String category,
             int gold,
@@ -158,8 +160,9 @@ public class DemoQueryDao {
     public List<AuditRow> expeditionAudit(Long settlementId, Long expeditionId) {
         return jdbc.query("""
                 select distinct ae.id, ae.happened_at, ae.actor_role, ae.event_type,
-                       ae.aggregate_type, ae.aggregate_id, ae.details::text
+                       ae.aggregate_type, ae.aggregate_id, ae.details::text, u.display_name as actor_name
                   from audit_event ae
+                  left join app_user u on u.id = ae.actor_user_id
                  where ae.settlement_id = :settlementId
                    and (
                        (ae.aggregate_type = 'EXPEDITION' and ae.aggregate_id = :expeditionId)
@@ -180,6 +183,7 @@ public class DemoQueryDao {
                 rs.getLong("id"),
                 rs.getTimestamp("happened_at").toInstant(),
                 rs.getString("actor_role"),
+                rs.getString("actor_name"),
                 rs.getString("event_type"),
                 rs.getString("aggregate_type"),
                 rs.getLong("aggregate_id"),
@@ -293,12 +297,13 @@ public class DemoQueryDao {
 
     public List<AllocationRow> allocations(Long settlementId) {
         return jdbc.query("""
-                select recipient, category, gold, provisions, thralls
+                select wa.expedition_id, recipient, category, gold, provisions, thralls
                   from wergild_allocation wa
                   join expedition e on e.id = wa.expedition_id
                  where e.settlement_id = :settlementId
                  order by wa.id
                 """, Map.of("settlementId", settlementId), (rs, rowNum) -> new AllocationRow(
+                rs.getLong("expedition_id"),
                 rs.getString("recipient"),
                 rs.getString("category"),
                 rs.getInt("gold"),

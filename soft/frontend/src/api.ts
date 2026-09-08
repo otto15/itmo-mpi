@@ -4,9 +4,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, token?: string, body?: unknown): Promise<T> {
+export async function api<T>(path: string, token?: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     method: body === undefined ? 'GET' : 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {})

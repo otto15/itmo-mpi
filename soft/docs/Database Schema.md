@@ -1,6 +1,6 @@
 # Схема базы данных Drakkar ERP Soft
 
-База данных работает на PostgreSQL 16. Flyway создаёт её автоматически при запуске приложения. В каталоге [`db/migration`](../backend/src/main/resources/db/migration) находятся ровно две исполняемые миграции: [`V1__schema.sql`](../backend/src/main/resources/db/migration/V1__schema.sql) создаёт полную схему, а [`V2__demo_data.sql`](../backend/src/main/resources/db/migration/V2__demo_data.sql) отдельно загружает демонстрационные данные.
+База данных работает на PostgreSQL 16. Flyway создаёт её автоматически при запуске приложения. В каталоге [`db/migration`](../backend/src/main/resources/db/migration) находятся миграции:  [`V1__schema.sql`](../backend/src/main/resources/db/migration/V1__schema.sql) создаёт полную схему, а [`V2__demo_data.sql`](../backend/src/main/resources/db/migration/V2__demo_data.sql) отдельно загружает демонстрационные данные. [`V3__preparation_and_reservations.sql`](../backend/src/main/resources/db/migration/V3__preparation_and_reservations.sql) расширяет существующую базу маршрутами, резервами, снимками выхода и защитой итогов.
 
 ## ER-схема
 
@@ -16,6 +16,11 @@ erDiagram
     SETTLEMENT ||--o{ AUDIT_EVENT : "имеет историю"
     APP_USER ||--o{ CREW_ASSIGNMENT : "участвует"
     EXPEDITION ||--o{ CREW_ASSIGNMENT : "включает команду"
+    EXPEDITION ||--o{ EXPEDITION_ROUTE_POINT : "содержит точки"
+    EXPEDITION ||--o{ EXPEDITION_RESOURCE_REQUIREMENT : "планирует припасы"
+    EXPEDITION ||--o{ RESOURCE_RESERVATION : "резервирует припасы"
+    SHIP ||--o{ RESOURCE_RESERVATION : "резервирует этап"
+    RESOURCE_RESERVATION ||--|{ RESOURCE_RESERVATION_ITEM : "содержит ресурсы"
     EXPEDITION ||--o{ WERGILD_ALLOCATION : "создаёт выплаты"
     EXPEDITION ||--o{ EXPEDITION_SHIP : "получает корабли"
     SHIP ||--o{ EXPEDITION_SHIP : "участвует в походах"
@@ -64,6 +69,8 @@ erDiagram
         varchar target
         varchar status
         date planned_departure
+        timestamptz started_at
+        jsonb departure_snapshot
         integer version
         timestamptz finalized_at
         integer loot_gold
@@ -149,6 +156,7 @@ erDiagram
         bigint id PK
         bigint settlement_id FK
         timestamptz happened_at
+        bigint actor_user_id FK
         varchar actor_role
         varchar event_type
         varchar aggregate_type
@@ -179,7 +187,8 @@ erDiagram
 | Авторизация | `app_user`, `user_session` | пользователь вместе с данными входа, автоматически назначенное поселение и серверные сессии |
 | Походы | `expedition`, `crew_assignment`, `expedition_ship`, `wergild_allocation` | план похода, команда, флот, добыча и Вергельд |
 | Верфь | `ship_type`, `ship_type_requirement`, `ship_build_request`, `ship`, `ship_stage_requirement` | каталог типов, рецепты, заказы и состояние строительства |
-| Склад | `warehouse_stock` | отдельные остатки каждого поселения |
+| Склад | `warehouse_stock`, `resource_reservation`, `resource_reservation_item` | физический остаток, резерв и доступное количество |
+| Подготовка | `expedition_route_point`, `expedition_resource_requirement` | упорядоченный маршрут и план припасов |
 | История | `audit_event` | события, которые API прикрепляет к карточке соответствующего похода |
 
 Служебную таблицу `flyway_schema_history` создаёт Flyway: в ней хранится список применённых миграций.
@@ -189,6 +198,16 @@ erDiagram
 `ship_type_requirement` — нормативный рецепт типа корабля. При запросе строительства рецепт копируется в `ship_stage_requirement`, поэтому уже созданный заказ не меняется при будущей корректировке справочника. При завершении этапа сервис выбирает склад активного поселения, блокирует нужные строки и в одной транзакции списывает ресурсы, меняет этап и добавляет аудит.
 
 `expedition_ship` реализует связь многие-ко-многим: один поход получает несколько кораблей, а готовый корабль после завершения старого похода может использоваться снова. Готовая вместимость считается только по кораблям на этапе `4`, плановая — по всем назначенным кораблям. Необходимое число мест не хранится в `expedition`: оно вычисляется как число приглашений `crew_assignment` со статусом `PENDING` или `CONFIRMED`; отказавшиеся и снятые назначения места не занимают. После утверждения итогов триггер `expedition_results_immutable` запрещает изменять статус, добычу и дату фиксации даже прямым SQL-запросом.
+
+## Резервы и снимок выхода
+
+`resource_reservation` содержит `id bigserial`, поселение, владельца (поход либо корабль и этап), автора, время создания, срок действия и статус `ACTIVE / CONSUMED / RELEASED`. Ресурсы и количества находятся в `resource_reservation_item`. API создания резерва доступен ярлу из карточки похода; модель также позволяет учитывать собственный резерв этапа при его списании.
+
+Резерв не меняет `warehouse_stock.quantity`. Доступное количество — физический остаток минус активные резервы с `expires_at > clock_timestamp()`. Просроченный резерв сразу исключается из расчёта; фоновая задача затем переводит его в `RELEASED` и записывает системный аудит. При выходе резерв становится `CONSUMED`, а физический остаток уменьшается один раз в той же транзакции.
+
+`expedition_route_point` имеет ключ `(expedition_id, position)`, имя и расстояние от предыдущей точки. `expedition_resource_requirement` хранит план ресурсов. `departure_snapshot` копирует команду, весь флот, маршрут и списанные припасы; `started_at` фиксирует реальное время выхода. Изменения справочников не переписывают снимок.
+
+Утверждённые потери и Вергельд защищены отдельными триггерами от вставки, изменения и удаления. У новых событий `audit_event.actor_user_id` указывает конкретного пользователя; у фонового освобождения он пустой, а `actor_role = SYSTEM`. Старым событиям неизвестный автор не приписывается.
 
 ## Как посмотреть работающую базу
 

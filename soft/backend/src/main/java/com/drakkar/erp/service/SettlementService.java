@@ -59,8 +59,8 @@ public class SettlementService {
         dao.addJarlMembership(settlementId, jarlId);
         STOCK_RESOURCES.forEach(resource -> dao.createEmptyStock(settlementId, resource));
 
-        audit.append(
-                settlementId, Role.JARL, "SETTLEMENT_CREATED", "SETTLEMENT", settlementId,
+        audit.appendSystem(
+                settlementId, "SETTLEMENT_CREATED", "SETTLEMENT", settlementId,
                 "{\"name\":\"" + escapeJson(settlementName) + "\"}");
         return new ApiModels.ProvisionSettlementResponse(settlementId, settlementName, username);
     }

@@ -393,3 +393,15 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .login-page { padding: 15px; }
   .login-panel { padding: 25px; }
 }
+/* Preparation details reuse the existing card palette and controls. */
+.preparation-section, .departure-panel { margin: 24px 0; padding: 20px; border: 1px solid #e7ded1; border-radius: 12px; }
+.route-list { padding-left: 22px; margin: 12px 0; }
+.route-list li { padding: 5px 0; }
+.route-list small { margin-left: 12px; color: #7c8682; }
+.reservation-summary { display: flex; flex-direction: column; gap: 6px; margin: 16px 0; }
+.preparation-editor { margin-top: 20px; }
+.preparation-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.route-editor-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 32px; gap: 8px; margin-top: 10px; }
+.route-editor-row input { min-width: 0; width: 100%; }
+.departure-panel summary { cursor: pointer; font-weight: 600; }
+.connection-status { color: #986224; font-size: 12px; }
