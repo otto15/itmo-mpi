@@ -65,6 +65,7 @@ class ArchitectureSliceIntegrationTest {
         registry.add("spring.datasource.hikari.initialization-fail-timeout", () -> "30000");
         registry.add("spring.datasource.hikari.connection-timeout", () -> "30000");
         registry.add("drakkar.provisioning-key", () -> "test-provisioning-key");
+        registry.add("drakkar.reservations.ttl", () -> "PT1M");
         registry.add("drakkar.reservations.sweep-ms", () -> "3600000");
         registry.add("drakkar.events.dispatch-ms", () -> "3600000");
     }
@@ -571,6 +572,41 @@ class ArchitectureSliceIntegrationTest {
         assertThatThrownBy(() -> jdbc.update("update expedition set departure_snapshot = '{}' where id = 207")).isInstanceOf(DataAccessException.class);
         assertThat(jdbc.queryForObject("select actor_user_id from audit_event where aggregate_id = 207 and event_type = 'EXPEDITION_STARTED'", Long.class)).isEqualTo(jarl.id());
         assertThat(jdbc.queryForObject("select quantity from warehouse_stock where settlement_id = 1 and resource = 'PROVISIONS'", Integer.class)).isEqualTo(70);
+    }
+
+    @Test
+    void eachRenewalAddsOneFullMinuteWithoutIncreasingReservedStock() {
+        var jarl = login("ragnar", "raven-2026");
+        Long first = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(0));
+        var firstExpiry = reservationExpiry(first);
+        Long second = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(1));
+        assertThat(reservationExpiry(second)).isEqualTo(firstExpiry.plusSeconds(60));
+        Long third = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(2));
+        assertThat(reservationExpiry(third)).isEqualTo(firstExpiry.plusSeconds(120));
+
+        assertThatThrownBy(() -> reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(2)))
+                .isInstanceOf(DomainException.class).hasMessageContaining("устарели");
+        assertThat(reservationExpiry(third)).isEqualTo(firstExpiry.plusSeconds(120));
+        assertThat(jdbc.queryForObject("select count(*) from resource_reservation where expedition_id = 207 and status = 'ACTIVE'", Integer.class)).isEqualTo(1);
+        var stock = queries.state(jarl).stock().stream().filter(s -> s.resource().equals("PROVISIONS")).findFirst().orElseThrow();
+        assertThat(stock.quantity()).isEqualTo(90);
+        assertThat(stock.reserved()).isEqualTo(20);
+        assertThat(stock.available()).isEqualTo(70);
+    }
+
+    @Test
+    void expiredReservationStartsANewMinuteFromCurrentTime() {
+        var jarl = login("ragnar", "raven-2026");
+        Long first = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(0));
+        expireReservation(first);
+        Long renewed = reservations.reserve(jarl, 207L, new ApiModels.ReserveRequest(1));
+        var createdAt = jdbc.queryForObject("select created_at from resource_reservation where id = ?", java.sql.Timestamp.class, renewed).toInstant();
+        assertThat(reservationExpiry(renewed)).isEqualTo(createdAt.plusSeconds(60));
+        assertThat(jdbc.queryForObject("select status from resource_reservation where id = ?", String.class, first)).isEqualTo("RELEASED");
+    }
+
+    private java.time.Instant reservationExpiry(Long id) {
+        return jdbc.queryForObject("select expires_at from resource_reservation where id = ?", java.sql.Timestamp.class, id).toInstant();
     }
 
     @Test

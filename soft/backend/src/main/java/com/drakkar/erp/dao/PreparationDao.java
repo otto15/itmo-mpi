@@ -87,6 +87,14 @@ public class PreparationDao {
                 "at", Timestamp.from(at), "expiry", Timestamp.from(expiry)), Long.class);
     }
 
+    public Instant activeReservationExpiry(Long expeditionId, Instant at) {
+        Timestamp expiry = jdbc.queryForObject("""
+                select max(expires_at) from resource_reservation
+                where expedition_id = :id and status = 'ACTIVE' and expires_at > :at
+                """, Map.of("id", expeditionId, "at", Timestamp.from(at)), Timestamp.class);
+        return expiry == null ? null : expiry.toInstant();
+    }
+
     public void addItem(Long id, RecipeResourceView item) {
         jdbc.update("insert into resource_reservation_item values (:id, :resource, :quantity)",
                 Map.of("id", id, "resource", item.resource(), "quantity", item.quantity()));

@@ -51,12 +51,14 @@ public class ReservationService {
         var at = dao.databaseTime();
         var items = dao.requirements(expeditionId);
         if (items.isEmpty()) throw DomainException.conflict("SUPPLIES_REQUIRED", "Сначала укажите припасы");
+        var currentExpiry = dao.activeReservationExpiry(expeditionId, at);
+        var nextExpiry = (currentExpiry == null ? at : currentExpiry).plus(ttl);
         dao.releaseExpedition(expeditionId, at);
         for (var item : items) {
             if (dao.available(actor.settlementId(), item.resource(), at) < item.quantity())
                 throw DomainException.conflict("INSUFFICIENT_STOCK", "Недостаточно свободного ресурса " + item.resource());
         }
-        Long id = dao.reserve(actor.settlementId(), expeditionId, actor.id(), at, at.plus(ttl));
+        Long id = dao.reserve(actor.settlementId(), expeditionId, actor.id(), at, nextExpiry);
         items.forEach(item -> dao.addItem(id, item));
         dao.bumpVersion(expeditionId);
         audit.append(actor, "RESOURCES_RESERVED", "EXPEDITION", expeditionId, "{\"reservationId\":" + id + "}");
